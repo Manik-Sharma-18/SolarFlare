@@ -91,6 +91,8 @@ def run_training(config: dict):
     print("=" * 60)
     
     output_channels = config['model'].get('output_channels', 1)
+    use_checkpointing = config['model'].get('use_checkpointing', False)
+    dropout_rate = config['model'].get('dropout_rate', 0.0)
     
     model = SolarFluxPredictor(
         input_channels=config['model']['input_channels'],
@@ -98,7 +100,9 @@ def run_training(config: dict):
         t_out=config['data']['t_out'],
         channels=config['model']['channels'],
         kernel_size=config['model']['kernel_size'],
-        downsample_input=config['model']['downsample_input']
+        downsample_input=config['model']['downsample_input'],
+        use_checkpointing=use_checkpointing,
+        dropout_rate=dropout_rate
     )
     model = model.to(device)
     
@@ -109,6 +113,8 @@ def run_training(config: dict):
     print(f"Output channels: {output_channels}")
     print(f"Channel progression: {config['model']['channels']}")
     print(f"Input downsampling: {config['model']['downsample_input']}")
+    print(f"Gradient checkpointing: {use_checkpointing}")
+    print(f"Dropout rate: {dropout_rate}")
     
     # Prepare training config
     train_config = {
@@ -177,6 +183,46 @@ def run_training(config: dict):
             use_amp=config['training']['use_amp']
         )
     
+    # Uncertainty Quantification (if enabled)
+    uncertainty_config = config.get('uncertainty', {})
+    if uncertainty_config.get('enabled', False):
+        print("\n" + "=" * 60)
+        print("UNCERTAINTY QUANTIFICATION")
+        print("=" * 60)
+        
+        if model.dropout_rate == 0.0:
+            print("Warning: Dropout rate is 0. Uncertainty estimation requires dropout_rate > 0.")
+            print("Set model.dropout_rate in config.yaml and retrain for meaningful uncertainty.")
+        else:
+            from models.uncertainty import predict_with_uncertainty
+            from utils.visualization import visualize_with_uncertainty
+            
+            n_samples = uncertainty_config.get('n_samples', 20)
+            print(f"Running MC Dropout with {n_samples} samples...")
+            
+            # Evaluate uncertainty on a few test samples
+            for i in range(min(3, len(test_dataset))):
+                X_in, Y_out, _ = test_dataset[i]
+                X_in = X_in.unsqueeze(0).to(device)
+                Y_out = Y_out.unsqueeze(0).to(device)
+                
+                mean_pred, uncertainty = predict_with_uncertainty(
+                    model, X_in, n_samples=n_samples
+                )
+                
+                # Save uncertainty visualization
+                if uncertainty_config.get('save_uncertainty_maps', True):
+                    save_path = str(output_dir / f'uncertainty_sample_{i}.png')
+                    visualize_with_uncertainty(
+                        mean_pred, uncertainty, Y_out[:, :output_channels],
+                        save_path=save_path
+                    )
+                
+                # Print uncertainty statistics
+                unc_mean = uncertainty.mean().item()
+                unc_max = uncertainty.max().item()
+                print(f"  Sample {i}: Mean uncertainty = {unc_mean:.6f}, Max = {unc_max:.6f}")
+    
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE")
     print("=" * 60)
@@ -195,7 +241,9 @@ def run_inference(config: dict, checkpoint_path: str, data_path: str = None):
         t_out=config['data']['t_out'],
         channels=config['model']['channels'],
         kernel_size=config['model']['kernel_size'],
-        downsample_input=config['model']['downsample_input']
+        downsample_input=config['model']['downsample_input'],
+        use_checkpointing=config['model'].get('use_checkpointing', False),
+        dropout_rate=config['model'].get('dropout_rate', 0.0)
     )
     model = model.to(device)
     
