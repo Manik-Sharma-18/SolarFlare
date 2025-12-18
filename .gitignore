@@ -1,2 +1,104 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Data Files
 *.npy
 *.npz
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+data/
+data_processed/
+!data/.gitkeep
+!data_processed/.gitkeep
+
+# Model Checkpoints & Outputs
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+outputs/
+solarflare_results/
+checkpoints/
+runs/
+logs/
+!outputs/.gitkeep
+!solarflare_results/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Large notebook outputs (keep notebooks but not huge outputs)
+SolarFlare_Colab_v2.ipynb
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
