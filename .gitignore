@@ -58,9 +58,26 @@ logs/
 !outputs/.gitkeep
 !solarflare_results/.gitkeep
 
+# Visualizations (optional - comment out if you want to track these)
+*.mp4
+*.gif
+predictions.png
+training_history.png
+uncertainty_*.png
+flare*.png
+evolution*.png
+comparison*.png
+viewer.html
+
+# Training outputs (JSON files in outputs/)
+outputs/training_history.json
+outputs/test_results.json
+outputs/metadata.json
+
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
