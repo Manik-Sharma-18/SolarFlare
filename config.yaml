@@ -12,7 +12,7 @@ data:
   t_out: 4                # Number of output timesteps to predict
   train_split: 0.7        # Fraction of data for training
   val_split: 0.15         # Fraction of data for validation (rest is test)
-  augment: false          # Enable data augmentation (flips)
+  augment: true          # Enable data augmentation (flips)
   dual_channel: true      # Enable dual-channel mode (flux + extreme indicator)
 
 normalization:
@@ -41,8 +41,17 @@ training:
   weight_decay: 0.00001   # L2 regularization
   tf_start: 0.5           # Initial teacher forcing ratio
   patience: 8             # Early stopping patience
-  use_amp: true           # Use automatic mixed precision (faster, less VRAM)
-  grad_clip: 1.0          # Gradient clipping max norm
+  use_amp: false           # Use automatic mixed precision (faster, less VRAM)
+  grad_clip: 0.5          # Gradient clipping max norm
+  
+  # Learning rate scheduler configuration
+  scheduler:
+    type: "none"          # Options: "cosine", "step", "constant", "none"
+    # Cosine annealing options
+    cosine_eta_min: 0.000001  # Minimum LR for cosine (default: 1e-6)
+    # Step scheduler options  
+    step_size: 10         # Epochs between LR decay (for type: "step")
+    step_gamma: 0.5       # LR decay factor (for type: "step")
 
 # Loss function configuration
 loss:
@@ -50,7 +59,7 @@ loss:
   l1_weight: 1.0          # Weight for L1 (MAE) loss
   ssim_weight: 0.5        # Weight for SSIM loss (as 1 - SSIM)
   extreme_weight: 1.0     # Weight for extreme value weighted loss
-  use_ms_ssim: true       # Use multi-scale SSIM (better for larger images)
+  use_ms_ssim: false       # Use multi-scale SSIM (better for larger images)
   ssim_data_range: 2.0    # Data range for SSIM (2.0 for normalized [-1,1])
 
 output:

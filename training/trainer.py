@@ -195,11 +195,28 @@ def train_model(
         weight_decay=weight_decay
     )
     
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=epochs,
-        eta_min=1e-6
-    )
+    # Create scheduler based on config
+    scheduler_config = config.get('scheduler', {'type': 'cosine'})
+    scheduler_type = scheduler_config.get('type', 'cosine').lower()
+    
+    if scheduler_type == 'cosine':
+        eta_min = scheduler_config.get('cosine_eta_min', 1e-6)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=epochs, eta_min=eta_min
+        )
+        scheduler_enabled = True
+    elif scheduler_type == 'step':
+        step_size = scheduler_config.get('step_size', 10)
+        gamma = scheduler_config.get('step_gamma', 0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=step_size, gamma=gamma
+        )
+        scheduler_enabled = True
+    elif scheduler_type == 'constant' or scheduler_type == 'none':
+        scheduler = None
+        scheduler_enabled = False
+    else:
+        raise ValueError(f"Unknown scheduler type: {scheduler_type}")
     
     # Gradient scaler for mixed precision
     scaler = get_grad_scaler(use_amp, device)
@@ -218,6 +235,7 @@ def train_model(
     print(f"  Device: {device}")
     print(f"  AMP: {use_amp}")
     print(f"  Loss: {loss_config.get('type', 'l1')}")
+    print(f"  LR Scheduler: {scheduler_type}")
     print(f"  Teacher forcing: {tf_start} → 0.0")
     print()
     
@@ -240,7 +258,8 @@ def train_model(
         )
         
         # Update scheduler
-        scheduler.step()
+        if scheduler_enabled:
+            scheduler.step()
         
         # Log
         print(f"  Train Loss: {train_loss:.6f}")
@@ -256,14 +275,16 @@ def train_model(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             checkpoint_path = save_dir / checkpoint_name
-            torch.save({
+            checkpoint_dict = {
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
                 'val_loss': val_loss,
                 'config': config
-            }, checkpoint_path)
+            }
+            if scheduler_enabled:
+                checkpoint_dict['scheduler_state_dict'] = scheduler.state_dict()
+            torch.save(checkpoint_dict, checkpoint_path)
             print(f"  ✓ Saved best model (val_loss: {val_loss:.6f})")
             patience_counter = 0
         else:

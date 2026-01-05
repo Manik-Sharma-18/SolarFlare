@@ -23,6 +23,7 @@ from training import train_model, validate
 from training.trainer import load_checkpoint
 from utils import get_device, visualize_predictions
 from utils.visualization import plot_training_history
+from training.losses import get_loss_function
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
@@ -147,7 +148,6 @@ def run_training(config: dict):
     load_checkpoint(model, str(checkpoint_path), device)
     
     # Import loss function for validation
-    from training.losses import get_loss_function
     loss_fn = get_loss_function(config.get('loss', {'type': 'l1'}))
     loss_fn = loss_fn.to(device)
     

@@ -440,6 +440,10 @@ All settings are in `config.yaml`. This section explains each parameter and how 
 | `patience` | `8` | Early stopping patience | **Higher (15)**: More chances to improve. **Lower (5)**: Faster termination |
 | `use_amp` | `true` | Mixed precision training | `true`: ~2x faster, less memory. `false`: Full precision, more stable |
 | `grad_clip` | `1.0` | Gradient clipping norm | **Lower (0.5)**: More aggressive clipping, stabler. **Higher (5.0)**: Less clipping |
+| `scheduler.type` | `"cosine"` | LR scheduler type | `"cosine"`: Smooth decay. `"step"`: Step decay every N epochs. `"constant"/"none"`: No scheduling |
+| `scheduler.cosine_eta_min` | `0.000001` | Min LR for cosine | **Lower**: LR decays more. **Higher**: Maintains higher LR longer |
+| `scheduler.step_size` | `10` | Step decay interval | Decay LR every N epochs (for `type: "step"`) |
+| `scheduler.step_gamma` | `0.5` | Step decay factor | Multiply LR by this each step (for `type: "step"`) |
 
 **Learning rate guidance:**
 
