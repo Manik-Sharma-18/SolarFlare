@@ -414,6 +414,8 @@ All settings are in `config.yaml`. This section explains each parameter and how 
 | `channels` | `[16, 32, 64]` | Channel progression | **Higher [32,64,128]**: More capacity, more memory, potentially better. **Lower [8,16,32]**: Less memory, faster, may underfit |
 | `kernel_size` | `3` | ConvLSTM kernel size | **Larger (5,7)**: Larger receptive field, more params. **Smaller (3)**: Standard, efficient |
 | `downsample_input` | `true` | 2x spatial downsampling | `true`: Halves H,W, saves ~4x memory. `false`: Full resolution, more memory |
+| `use_checkpointing` | `false` | Gradient checkpointing | `true`: Saves ~40% VRAM, ~20% slower training. Enable for larger models |
+| `dropout_rate` | `0.0` | Dropout for uncertainty | `0.0`: No dropout. `0.1-0.2`: Enable MC Dropout for uncertainty estimation |
 
 **Channel progression impact:**
 
@@ -438,6 +440,10 @@ All settings are in `config.yaml`. This section explains each parameter and how 
 | `patience` | `8` | Early stopping patience | **Higher (15)**: More chances to improve. **Lower (5)**: Faster termination |
 | `use_amp` | `true` | Mixed precision training | `true`: ~2x faster, less memory. `false`: Full precision, more stable |
 | `grad_clip` | `1.0` | Gradient clipping norm | **Lower (0.5)**: More aggressive clipping, stabler. **Higher (5.0)**: Less clipping |
+| `scheduler.type` | `"cosine"` | LR scheduler type | `"cosine"`: Smooth decay. `"step"`: Step decay every N epochs. `"constant"/"none"`: No scheduling |
+| `scheduler.cosine_eta_min` | `0.000001` | Min LR for cosine | **Lower**: LR decays more. **Higher**: Maintains higher LR longer |
+| `scheduler.step_size` | `10` | Step decay interval | Decay LR every N epochs (for `type: "step"`) |
+| `scheduler.step_gamma` | `0.5` | Step decay factor | Multiply LR by this each step (for `type: "step"`) |
 
 **Learning rate guidance:**
 
@@ -480,6 +486,24 @@ All settings are in `config.yaml`. This section explains each parameter and how 
 | `checkpoint_name` | `"best_model.pt"` | Model checkpoint filename | Change to keep multiple checkpoints |
 | `save_history` | `true` | Save training history JSON | `false`: Skip saving (not recommended) |
 | `save_visualizations` | `true` | Save prediction plots | `false`: Skip plots (faster) |
+
+---
+
+### Uncertainty Settings
+
+| Parameter | Default | Description | Effect of Changing |
+|-----------|---------|-------------|-------------------|
+| `enabled` | `false` | Enable uncertainty quantification | `true`: Run MC Dropout during evaluation. Requires `dropout_rate > 0` |
+| `n_samples` | `20` | MC Dropout samples | **Higher (50+)**: Better estimates, slower. **Lower (10)**: Faster, noisier |
+| `save_uncertainty_maps` | `true` | Save uncertainty visualizations | `false`: Skip uncertainty plots |
+
+**Uncertainty interpretation:**
+
+| Uncertainty Level | Meaning | Action |
+|-------------------|---------|--------|
+| Low (< mean) | Model is confident | Trust prediction |
+| High (> mean) | Multiple outcomes possible | Verify with other data |
+| Spatially varying | Edges/transitions uncertain | Focus on high-uncertainty regions |
 
 ---
 
@@ -785,6 +809,124 @@ Components:
 
 ---
 
+## Gradient Checkpointing
+
+Save ~40% GPU memory by recomputing activations during backward pass:
+
+```yaml
+model:
+  use_checkpointing: true  # Enable memory savings
+```
+
+**Trade-offs:**
+- Saves ~40% VRAM
+- ~20% slower training
+- No change to inference
+
+**When to use:**
+- Training larger models on limited VRAM
+- Increasing channel sizes: `[32, 64, 128]`
+
+---
+
+## Uncertainty Quantification (MC Dropout)
+
+Get confidence estimates for predictions using Monte Carlo Dropout:
+
+### Configuration
+
+```yaml
+model:
+  dropout_rate: 0.1  # Enable dropout (required for UQ)
+
+uncertainty:
+  enabled: true       # Enable UQ during evaluation
+  n_samples: 20       # More samples = better estimate, slower
+  save_uncertainty_maps: true
+```
+
+### How It Works
+
+1. During training, dropout regularizes the model
+2. During inference, dropout is kept ON
+3. Multiple forward passes produce a distribution
+4. Standard deviation = model uncertainty
+
+### Usage in Code
+
+```python
+from models import SolarFluxPredictor, predict_with_uncertainty
+
+model = SolarFluxPredictor(dropout_rate=0.1, ...)
+# ... train model ...
+
+# Get predictions with uncertainty
+mean_pred, uncertainty = predict_with_uncertainty(model, x, n_samples=20)
+
+# High uncertainty = model is less confident
+```
+
+### Interpreting Results
+
+- **Low uncertainty**: Model is confident in prediction
+- **High uncertainty**: Multiple possible outcomes, proceed with caution
+- **Spatially varying**: Shows where model is unsure (often at flare edges)
+
+---
+
+## Animation Tools
+
+Create animated visualizations of solar flare evolution:
+
+### Command Line
+
+```bash
+# Create MP4 video
+python visualize_flares.py --cube data_processed/cube_005.npz --output flare.mp4 --fps 10
+
+# Create interactive HTML viewer (requires plotly)
+python visualize_flares.py --cube data_processed/cube_005.npz --format html
+
+# Animate specific frames
+python visualize_flares.py --cube data_processed/cube_005.npz --start 10 --end 60 --fps 5
+```
+
+### Python API
+
+```python
+from utils.animation import (
+    animate_flare_sequence,
+    interactive_flare_viewer,
+    animate_prediction_vs_truth
+)
+
+# Load data
+import numpy as np
+data = np.load('data_processed/cube_005.npz')
+flux = data['flux']
+
+# Create MP4
+animate_flare_sequence(flux, 'evolution.mp4', fps=10)
+
+# Create interactive HTML
+interactive_flare_viewer(flux, output_path='viewer.html')
+
+# Compare prediction vs ground truth
+animate_prediction_vs_truth(model, test_dataset, device, output_path='comparison.mp4')
+```
+
+### Visualization Options
+
+| Function | Output | Use Case |
+|----------|--------|----------|
+| `animate_flare_sequence` | MP4/GIF | General evolution video |
+| `interactive_flare_viewer` | HTML | Interactive exploration |
+| `animate_prediction_vs_truth` | MP4 | Model evaluation |
+| `animate_with_uncertainty` | MP4 | Uncertainty visualization |
+| `create_difference_animation` | MP4 | Error analysis |
+
+---
+
 ## Future Improvements (Planned)
 
 The following improvements are planned for future releases:
@@ -801,35 +943,21 @@ The following improvements are planned for future releases:
 
 ### Architecture Enhancements
 
-3. **Increased Model Capacity**
-   ```yaml
-   model:
-     channels: [32, 64, 128]  # vs current [16, 32, 64]
-   ```
-
-4. **Gradient Checkpointing**
-   - Trade computation for memory
-   - Enable larger models on limited VRAM
-
-5. **Attention Mechanism**
+3. **Attention Mechanism**
    - Spatial attention to focus on active regions
    - Better prediction of localized solar flares
 
 ### Advanced Loss Functions
 
-6. **Gradient Difference Loss (GDL)**
+4. **Gradient Difference Loss (GDL)**
    - Penalize blurry edges explicitly
    - Sharper spatial boundaries
 
 ### Advanced Architectures
 
-7. **PredRNN-V2 Cell Replacement**
+5. **PredRNN-V2 Cell Replacement**
    - Memory decoupling for better long-term dynamics
    - Reverse Scheduled Sampling (RSS)
-
-8. **Uncertainty Quantification**
-   - MC Dropout for confidence estimation
-   - Probabilistic forecasts for risk assessment
 
 ---
 

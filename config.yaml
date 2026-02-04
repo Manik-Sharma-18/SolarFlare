@@ -1,8 +1,11 @@
 # Solar Flare Prediction Model Configuration
 # ============================================
 
-device:
-  use_cuda: true         # Set to false to force CPU (useful for debugging or no GPU)
+device: "auto"              # "auto" (detect best), "cuda", "mps", or "cpu"
+
+seed: 42                    # Random seed for reproducibility (torch, numpy, python random)
+
+resume_from: null           # Path to checkpoint file to resume training from (null = start fresh)
 
 data:
   data_dir: "./data"      # Path to directory containing raw .npy files
@@ -10,10 +13,11 @@ data:
   preprocessed_dir: "./data_processed"  # Path to preprocessed cube files
   t_in: 10                # Number of input timesteps
   t_out: 4                # Number of output timesteps to predict
-  train_split: 0.7        # Fraction of data for training
-  val_split: 0.15         # Fraction of data for validation (rest is test)
-  augment: false          # Enable data augmentation (flips)
+  augmentation: "none"    # "none", "balanced" (h/v flips), or "aggressive" (flips + rotations)
+  stride: 1               # Sliding window stride (1 = maximum overlap, higher = fewer samples)
+  split_ratios: [0.7, 0.2, 0.1]  # Train/test/val split ratios (whole-file assignment)
   dual_channel: true      # Enable dual-channel mode (flux + extreme indicator)
+  num_workers: 0          # DataLoader workers (0 = main process only, >0 = multiprocessing)
 
 normalization:
   method: "asinh"         # "asinh" (recommended), "robust", or "fixed"
@@ -30,17 +34,27 @@ model:
   channels: [16, 32, 64]  # Channel progression: encoder1, encoder2, latent
   kernel_size: 3          # Kernel size for ConvLSTM cells
   downsample_input: true  # Apply 2x spatial downsampling at input (saves VRAM)
+  use_checkpointing: false # Gradient checkpointing (saves ~40% VRAM, ~20% slower)
+  dropout_rate: 0.0       # Dropout rate for MC Dropout uncertainty (0.0 = disabled)
 
 training:
   batch_size: 1           # Batch size (keep at 1 for large spatial dims)
-  num_workers: 2          # DataLoader workers (set to 0 if running on Google Colab)
   epochs: 25              # Number of training epochs (~1 hour on RTX 3050)
   lr: 0.0001               # Learning rate
   weight_decay: 0.00001   # L2 regularization
   tf_start: 0.5           # Initial teacher forcing ratio
   patience: 8             # Early stopping patience
-  use_amp: true           # Use automatic mixed precision (faster, less VRAM)
-  grad_clip: 1.0          # Gradient clipping max norm
+  use_amp: false           # Use automatic mixed precision (faster, less VRAM)
+  grad_clip: 0.5          # Gradient clipping max norm
+  
+  # Learning rate scheduler configuration
+  scheduler:
+    type: "none"          # Options: "cosine", "step", "constant", "none"
+    # Cosine annealing options
+    cosine_eta_min: 0.000001  # Minimum LR for cosine (default: 1e-6)
+    # Step scheduler options  
+    step_size: 10         # Epochs between LR decay (for type: "step")
+    step_gamma: 0.5       # LR decay factor (for type: "step")
 
 # Loss function configuration
 loss:
@@ -48,8 +62,9 @@ loss:
   l1_weight: 1.0          # Weight for L1 (MAE) loss
   ssim_weight: 0.5        # Weight for SSIM loss (as 1 - SSIM)
   extreme_weight: 1.0     # Weight for extreme value weighted loss
-  use_ms_ssim: true       # Use multi-scale SSIM (better for larger images)
+  use_ms_ssim: false       # Use multi-scale SSIM (better for larger images)
   ssim_data_range: 2.0    # Data range for SSIM (2.0 for normalized [-1,1])
+  ssim_tiling_threshold: 256  # Tile SSIM computation for spatial dims above this (prevents OOM on 512x512+)
 
 output:
   save_dir: "./outputs"   # Directory for checkpoints and logs
@@ -60,3 +75,15 @@ output:
 logging:
   progress_bar: true      # Show tqdm progress bars
   log_interval: 10        # Log every N batches (if progress_bar is false)
+
+# Error handling thresholds
+error_handling:
+  max_consecutive_nan: 10       # Abort training after N consecutive NaN batches
+  grad_norm_warning_threshold: 100.0  # Log warning when gradient norm exceeds this
+  data_failure_threshold: 0.1   # Abort if more than this fraction of data files fail (0.1 = 10%)
+
+# Uncertainty quantification (MC Dropout)
+uncertainty:
+  enabled: false          # Enable uncertainty estimation during inference
+  n_samples: 20           # Number of MC dropout samples (more = better estimate, slower)
+  save_uncertainty_maps: true  # Save uncertainty visualization images

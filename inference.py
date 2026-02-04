@@ -20,46 +20,69 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from models import SolarFluxPredictor
+from utils.device import resolve_device
+from utils.checkpoint import load_checkpoint_for_inference
 
 
-def load_model(checkpoint_path: str, device: str = 'cuda') -> SolarFluxPredictor:
+def load_model(checkpoint_path: str, device: torch.device = None):
     """
     Load trained model from checkpoint.
-    
+
+    Returns model AND normalization_params (self-contained, no metadata.json needed).
+
     Args:
         checkpoint_path: Path to best_model.pt
-        device: 'cuda' or 'cpu'
-    
+        device: torch.device to load onto (auto-detected if None)
+
     Returns:
-        Loaded model ready for inference
+        Tuple of (model, normalization_params). normalization_params may be None
+        for legacy checkpoints that don't contain them.
     """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    
-    # Get config from checkpoint (or use defaults)
+    checkpoint, device = load_checkpoint_for_inference(Path(checkpoint_path), device)
+
     config = checkpoint.get('config', {})
-    
+
     # Create model with same architecture
+    # Handle both new nested format (config.model.X) and legacy flat format (config.X)
     model = SolarFluxPredictor(
-        input_channels=config.get('input_channels', 1),
-        t_out=config.get('t_out', 3),
-        channels=config.get('channels', [16, 32, 64]),
-        kernel_size=config.get('kernel_size', 3),
-        downsample_input=config.get('downsample_input', True)
+        input_channels=config.get('input_channels',
+                        config.get('model', {}).get('input_channels', 1)),
+        output_channels=config.get('output_channels',
+                        config.get('model', {}).get('output_channels', 1)),
+        t_out=config.get('t_out',
+              config.get('data', {}).get('t_out', 3)),
+        channels=config.get('channels',
+                 config.get('model', {}).get('channels', [16, 32, 64])),
+        kernel_size=config.get('kernel_size',
+                    config.get('model', {}).get('kernel_size', 3)),
+        downsample_input=config.get('downsample_input',
+                         config.get('model', {}).get('downsample_input', True)),
+        use_checkpointing=config.get('use_checkpointing',
+                          config.get('model', {}).get('use_checkpointing', False)),
+        dropout_rate=config.get('dropout_rate',
+                     config.get('model', {}).get('dropout_rate', 0.0))
     )
-    
-    # Load weights
+
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
     model.eval()
-    
+
+    normalization_params = checkpoint.get('normalization_params')
+
     print(f"Loaded model from epoch {checkpoint['epoch']}")
-    print(f"Validation loss: {checkpoint['val_loss']:.6f}")
-    
-    return model
+    if checkpoint.get('best_val_loss') is not None:
+        print(f"  Best val loss: {checkpoint['best_val_loss']:.6f}")
+
+    return model, normalization_params
 
 
 def load_normalization(metadata_path: str) -> dict:
-    """Load normalization parameters from metadata."""
+    """Load normalization parameters from metadata.
+
+    Note: Prefer using normalization_params from checkpoint directly
+    (returned by load_model). This function is for legacy checkpoints
+    that don't contain normalization_params.
+    """
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
     return metadata['normalization']
@@ -76,21 +99,23 @@ def unnormalize(data: np.ndarray, norm_params: dict) -> np.ndarray:
 
 
 def predict(
-    model: SolarFluxPredictor, 
-    input_data: np.ndarray, 
-    device: str = 'cuda'
+    model: SolarFluxPredictor,
+    input_data: np.ndarray,
+    device: torch.device = None,
 ) -> np.ndarray:
     """
     Make predictions on input data.
-    
+
     Args:
         model: Loaded model
         input_data: numpy array of shape (T_in, H, W) - already normalized
-        device: 'cuda' or 'cpu'
-    
+        device: torch.device (inferred from model parameters if None)
+
     Returns:
         predictions: numpy array of shape (T_out, H, W)
     """
+    if device is None:
+        device = next(model.parameters()).device
     # Ensure correct shape: (B, C, T, H, W)
     if input_data.ndim == 3:
         input_tensor = input_data[np.newaxis, np.newaxis, ...]  # (1, 1, T, H, W)
@@ -168,17 +193,21 @@ if __name__ == '__main__':
     START_IDX = 50  # Which time index to start from
     
     # Device selection
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Using device: {device}")
+    device = resolve_device("auto")
     print("=" * 60)
     
-    # Load model
+    # Load model (includes normalization from checkpoint if available)
     print("\n1. Loading model...")
-    model = load_model(CHECKPOINT_PATH, device)
-    
-    # Load normalization parameters
+    model, norm_params_from_ckpt = load_model(CHECKPOINT_PATH, device)
+
+    # Use normalization from checkpoint if available, fall back to metadata.json
     print("\n2. Loading normalization parameters...")
-    norm_params = load_normalization(METADATA_PATH)
+    if norm_params_from_ckpt:
+        norm_params = norm_params_from_ckpt
+        print("   Loaded normalization from checkpoint (self-contained)")
+    else:
+        print("   Loading normalization from metadata.json (legacy checkpoint)")
+        norm_params = load_normalization(METADATA_PATH)
     print(f"   Center: {norm_params['center']:.2f}")
     print(f"   Scale: {norm_params['scale']:.2f}")
     

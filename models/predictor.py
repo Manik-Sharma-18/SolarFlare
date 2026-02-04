@@ -3,12 +3,16 @@ Solar Flux Predictor Model.
 
 Encoder-decoder architecture with ConvLSTM for spatiotemporal prediction.
 Uses autoregressive decoding with optional teacher forcing.
+
+Features:
+- Gradient checkpointing for memory-efficient training
+- Configurable dropout for uncertainty quantification (MC Dropout)
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Optional, List
+from torch.utils.checkpoint import checkpoint
+from typing import Optional, List, Tuple
 
 from .convlstm import ConvLSTM
 
@@ -25,6 +29,10 @@ class SolarFluxPredictor(nn.Module):
     
     The model predicts residuals (changes) rather than absolute values,
     which helps with training stability.
+    
+    Advanced Features:
+    - Gradient checkpointing: Reduces memory ~40% by recomputing activations
+    - MC Dropout: Enable dropout_rate > 0 for uncertainty quantification
     """
     
     def __init__(
@@ -34,7 +42,9 @@ class SolarFluxPredictor(nn.Module):
         t_out: int = 3,
         channels: List[int] = [16, 32, 64],
         kernel_size: int = 3,
-        downsample_input: bool = True
+        downsample_input: bool = True,
+        use_checkpointing: bool = False,
+        dropout_rate: float = 0.0
     ):
         """
         Args:
@@ -44,12 +54,16 @@ class SolarFluxPredictor(nn.Module):
             channels: Channel progression [enc1, enc2, latent]
             kernel_size: Kernel size for ConvLSTM cells
             downsample_input: Apply 2x spatial downsampling at input
+            use_checkpointing: Enable gradient checkpointing (saves ~40% memory)
+            dropout_rate: Dropout rate for MC Dropout uncertainty (0.0 = disabled)
         """
         super().__init__()
         self.t_out = t_out
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.downsample_input = downsample_input
+        self.use_checkpointing = use_checkpointing
+        self.dropout_rate = dropout_rate
         
         c1, c2, c3 = channels  # e.g., [16, 32, 64]
         
@@ -107,6 +121,57 @@ class SolarFluxPredictor(nn.Module):
             )
         else:
             self.output_conv = nn.Conv2d(c1, output_channels, kernel_size=1)
+        
+        # Dropout layers for uncertainty quantification (MC Dropout)
+        # When dropout_rate > 0, these enable stochastic inference
+        if dropout_rate > 0.0:
+            self.dropout_enc1 = nn.Dropout2d(dropout_rate)
+            self.dropout_enc2 = nn.Dropout2d(dropout_rate)
+            self.dropout_dec = nn.Dropout2d(dropout_rate)
+        else:
+            # Identity modules when dropout disabled (no overhead)
+            self.dropout_enc1 = nn.Identity()
+            self.dropout_enc2 = nn.Identity()
+            self.dropout_dec = nn.Identity()
+    
+    def _encoder_forward(
+        self, 
+        x_prep: torch.Tensor, 
+        T_in: int
+    ) -> Tuple[torch.Tensor, list, list, torch.Tensor]:
+        """
+        Encoder forward pass - can be checkpointed to save memory.
+        
+        Args:
+            x_prep: Preprocessed input (B, c1, T_in, H_down, W_down)
+            T_in: Number of input timesteps
+        
+        Returns:
+            h1_skip: Skip connection from first encoder layer
+            h2_states: Hidden states from encoder layer 2
+            h3_states: Hidden states from encoder layer 3
+            h1_down: Downsampled h1 for decoder initialization
+        """
+        # ConvLSTM1 at current resolution
+        h1_seq, h1_states = self.encoder_conv1(x_prep)
+        h1_skip = h1_states[0][0]  # Save for skip connection (B, c1, H_down, W_down)
+        
+        # Apply dropout after encoder layer 1
+        h1_seq = self.dropout_enc1(h1_seq)
+        
+        # Downsample spatially
+        h1_down = self.downsample1(h1_seq[:, :, -1])
+        h1_down_expanded = h1_down.unsqueeze(2).expand(-1, -1, T_in, -1, -1)
+        
+        # ConvLSTM2 and ConvLSTM3
+        h2_seq, h2_states = self.encoder_conv2(h1_down_expanded)
+        
+        # Apply dropout after encoder layer 2
+        h2_seq = self.dropout_enc2(h2_seq)
+        
+        h3_seq, h3_states = self.encoder_conv3(h2_seq)
+        
+        return h1_skip, h2_states, h3_states, h1_down
     
     def forward(
         self, 
@@ -135,29 +200,25 @@ class SolarFluxPredictor(nn.Module):
             _, c1, H_down, W_down = x_down.shape
             x_prep = x_down.view(B, c1, T_in, H_down, W_down)
         else:
-            x_flat = x.view(B * T_in, C, H_orig, W_orig)
-            x_prep = self.preprocess(x_flat)
-            _, c1, H_down, W_down = x_prep.shape
-            x_prep = x_prep.view(B, c1, T_in, H_down, W_down)
+            H_down, W_down = H_orig, W_orig
+            x_prep = x.view(B, C, T_in, H_down, W_down)
         
         # Preprocess
         x_prep_flat = x_prep.view(B * T_in, -1, H_down, W_down)
         x_prep_out = self.preprocess(x_prep_flat)
         x_prep = x_prep_out.view(B, -1, T_in, H_down, W_down)
         
-        # ENCODER
-        # ConvLSTM1 at current resolution
-        h1_seq, h1_states = self.encoder_conv1(x_prep)
-        h1_skip = h1_states[0][0]  # Save for skip connection (B, c1, H_down, W_down)
+        # ENCODER (with optional gradient checkpointing)
+        if self.use_checkpointing and self.training:
+            # Checkpoint encoder to save memory during training
+            # Note: checkpointing recomputes forward during backward pass
+            h1_skip, h2_states, h3_states, h1_down = checkpoint(
+                self._encoder_forward, x_prep, T_in, use_reentrant=False
+            )
+        else:
+            h1_skip, h2_states, h3_states, h1_down = self._encoder_forward(x_prep, T_in)
         
-        # Downsample spatially
-        h1_down = self.downsample1(h1_seq[:, :, -1])
         H_latent, W_latent = h1_down.shape[-2:]
-        h1_down = h1_down.unsqueeze(2).expand(-1, -1, T_in, -1, -1)
-        
-        # ConvLSTM2 and ConvLSTM3
-        h2_seq, h2_states = self.encoder_conv2(h1_down)
-        h3_seq, h3_states = self.encoder_conv3(h2_seq)
         
         # DECODER (Autoregressive)
         predictions = []
@@ -185,6 +246,10 @@ class SolarFluxPredictor(nn.Module):
             
             # Decoder ConvLSTMs
             dec_h2, decoder_state2 = self.decoder_conv2(dec_down, decoder_state2)
+            
+            # Apply dropout after decoder layer (for MC Dropout uncertainty)
+            dec_h2 = self.dropout_dec(dec_h2)
+            
             dec_h3, decoder_state3 = self.decoder_conv3(dec_h2, decoder_state3)
             
             # Upsample
@@ -217,7 +282,7 @@ class SolarFluxPredictor(nn.Module):
             use_teacher = (
                 teacher_forcing_ratio > 0 and 
                 y_true is not None and 
-                np.random.rand() < teacher_forcing_ratio
+                torch.rand(1).item() < teacher_forcing_ratio
             )
             
             if use_teacher:
