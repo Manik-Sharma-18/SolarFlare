@@ -1,4 +1,5 @@
 """Centralized checkpoint I/O: atomic saves, versioned loads, cross-device portability."""
+import copy
 import logging
 import os
 import tempfile
@@ -104,7 +105,7 @@ def save_checkpoint(
         'checkpoint_version': CHECKPOINT_VERSION,
         'epoch': epoch,
         'model_state_dict': {k: v.cpu() for k, v in model.state_dict().items()},
-        'optimizer_state_dict': optimizer.state_dict(),
+        'optimizer_state_dict': copy.deepcopy(optimizer.state_dict()),
         'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
         'scaler_state_dict': (
             scaler.state_dict()
