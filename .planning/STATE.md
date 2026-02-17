@@ -34,6 +34,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-04
-Stopped at: v2.0 milestone archived and shipped
+Last session: 2026-02-17
+Stopped at: Completed quick/001-model-architecture-doc (docs/MODEL_ARCHITECTURE.md)
 Resume file: None
