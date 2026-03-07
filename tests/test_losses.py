@@ -4,7 +4,11 @@ Tests cover:
 - SSIM: identical inputs, different inputs, symmetry, NaN resilience
 - MS-SSIM: identical inputs, finite output
 - Gaussian kernel: shape, sum-to-one, caching
-- WeightedMAE: zero error, extreme weighting
+- WeightedMAE: zero error, extreme weighting, absolute threshold, boundary
+- AsymmetricExtremeLoss: asymmetric underestimation, symmetric below, zero error
+- Temporal diff loss: nonzero for different dynamics, zero for identical, 5D handling
+- Temporal variation penalty: negative value, capped at target variation, T=1
+- Temporal weighting: later timesteps weighted more, broadcast shape
 - CompositeLoss: scalar output, finite, components dict, 5D temporal input
 - get_loss_function factory: all types + unknown raises ValueError
 """
@@ -21,6 +25,10 @@ from training.losses import (
     WeightedMAELoss,
     CompositeLoss,
     get_loss_function,
+    AsymmetricExtremeLoss,
+    compute_temporal_diff_loss,
+    compute_temporal_var_penalty,
+    apply_temporal_weights,
 )
 
 
@@ -125,22 +133,21 @@ class TestGaussianKernel:
 class TestWeightedMAE:
     def test_weighted_mae_zero_error(self):
         """pred == target should produce loss ~0."""
-        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=2.0)
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
         x = torch.rand(1, 1, 32, 32)
         val = loss_fn(x, x)
         assert val.item() < 1e-6, f"Expected ~0, got {val.item()}"
 
     def test_weighted_mae_extreme_higher_weight(self):
-        """Extreme target values should produce higher loss than uniform L1."""
-        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=2.0)
-        torch.manual_seed(3)
+        """Extreme target values (above threshold) should produce higher loss than uniform L1."""
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
 
-        # Target with mix of normal (0.1) and extreme (10.0) values
+        # Target with mix of normal (0.1, below threshold) and extreme (0.5, above threshold)
         target = torch.full((1, 1, 32, 32), 0.1)
-        target[:, :, :16, :] = 10.0  # extreme region
+        target[:, :, :16, :] = 0.5  # above threshold=0.3456
 
         # Pred with uniform offset
-        pred = target + 0.5
+        pred = target + 0.05
 
         weighted_loss = loss_fn(pred, target)
         plain_l1 = F.l1_loss(pred, target)
@@ -149,6 +156,265 @@ class TestWeightedMAE:
             f"Weighted loss ({weighted_loss.item()}) should exceed "
             f"plain L1 ({plain_l1.item()})"
         )
+
+    def test_weighted_mae_absolute_threshold(self):
+        """Same target value at different batch max values should produce identical loss.
+
+        Binary weighting with absolute threshold means the loss should NOT depend
+        on the maximum target value in the batch (unlike the old relative approach).
+        """
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
+
+        # Batch 1: target has values 0.5 (above threshold), max is 0.5
+        target1 = torch.full((1, 1, 8, 8), 0.5)
+        pred1 = torch.full((1, 1, 8, 8), 0.4)
+
+        # Batch 2: same target at 0.5, but add a larger value to change max
+        target2 = torch.full((1, 1, 8, 8), 0.5)
+        target2[0, 0, 0, 0] = 2.0  # different batch max
+        pred2 = torch.full((1, 1, 8, 8), 0.4)
+        pred2[0, 0, 0, 0] = 1.9  # same error at extreme pixel
+
+        loss1 = loss_fn(pred1, target1)
+        loss2 = loss_fn(pred2, target2)
+
+        # With absolute threshold, both should use extreme_weight for all pixels
+        # (all target values > 0.3456), so losses should be identical
+        assert torch.allclose(loss1, loss2, atol=1e-5), (
+            f"Absolute threshold failed: loss1={loss1.item():.6f} vs loss2={loss2.item():.6f} "
+            f"should be identical for same error magnitudes"
+        )
+
+    def test_weighted_mae_threshold_boundary(self):
+        """Values at threshold boundary should get correct weights.
+
+        Below threshold: weight = base_weight (1.0)
+        Above threshold: weight = extreme_weight (3.0)
+        """
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.35)
+
+        # All below threshold: weight should be base_weight=1.0
+        target_below = torch.full((1, 1, 4, 4), 0.34)
+        pred_below = torch.full((1, 1, 4, 4), 0.24)  # error = 0.1
+        loss_below = loss_fn(pred_below, target_below)
+        # Expected: base_weight * 0.1 = 1.0 * 0.1 = 0.1
+        assert abs(loss_below.item() - 0.1) < 1e-5, (
+            f"Below threshold: expected 0.1, got {loss_below.item()}"
+        )
+
+        # All above threshold: weight should be extreme_weight=3.0
+        target_above = torch.full((1, 1, 4, 4), 0.36)
+        pred_above = torch.full((1, 1, 4, 4), 0.26)  # error = 0.1
+        loss_above = loss_fn(pred_above, target_above)
+        # Expected: extreme_weight * 0.1 = 3.0 * 0.1 = 0.3
+        assert abs(loss_above.item() - 0.3) < 1e-5, (
+            f"Above threshold: expected 0.3, got {loss_above.item()}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AsymmetricExtremeLoss tests
+# ---------------------------------------------------------------------------
+
+class TestAsymmetricExtremeLoss:
+    def test_asymmetric_underestimation_above_threshold(self):
+        """Above threshold, underestimation loss is alpha times overestimation loss.
+
+        With alpha=2.0, underestimating an extreme region by 0.2 should produce
+        2x the loss compared to overestimating by the same magnitude.
+        """
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+
+        # Target above threshold
+        target = torch.full((1, 1, 4, 4), 0.5)
+
+        # Underestimate by 0.2
+        pred_under = torch.full((1, 1, 4, 4), 0.3)
+        loss_under = loss_fn(pred_under, target)
+
+        # Overestimate by 0.2
+        pred_over = torch.full((1, 1, 4, 4), 0.7)
+        loss_over = loss_fn(pred_over, target)
+
+        # Underestimation loss should be alpha (2.0) times overestimation loss
+        ratio = loss_under.item() / loss_over.item()
+        assert abs(ratio - 2.0) < 0.01, (
+            f"Expected ratio ~2.0, got {ratio:.4f} "
+            f"(under={loss_under.item():.6f}, over={loss_over.item():.6f})"
+        )
+
+    def test_symmetric_below_threshold(self):
+        """Below threshold, underestimation and overestimation produce equal loss."""
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+
+        # Target below threshold
+        target = torch.full((1, 1, 4, 4), 0.1)
+
+        # Underestimate by 0.1
+        pred_under = torch.full((1, 1, 4, 4), 0.0)
+        loss_under = loss_fn(pred_under, target)
+
+        # Overestimate by 0.1
+        pred_over = torch.full((1, 1, 4, 4), 0.2)
+        loss_over = loss_fn(pred_over, target)
+
+        assert torch.allclose(loss_under, loss_over, atol=1e-6), (
+            f"Below threshold should be symmetric: "
+            f"under={loss_under.item():.6f} vs over={loss_over.item():.6f}"
+        )
+
+    def test_zero_error(self):
+        """pred == target should produce loss ~0."""
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+        target = torch.full((1, 1, 8, 8), 0.5)
+        pred = target.clone()
+        loss_val = loss_fn(pred, target)
+        assert loss_val.item() < 1e-6, f"Expected ~0, got {loss_val.item()}"
+
+
+# ---------------------------------------------------------------------------
+# Temporal diff loss tests
+# ---------------------------------------------------------------------------
+
+class TestTemporalDiffLoss:
+    def test_nonzero_for_different_dynamics(self):
+        """When pred has different frame-to-frame changes than target, loss > 0.
+
+        Pred changes linearly, target changes quadratically.
+        """
+        # Shape (B, C, T, H, W) = (1, 1, 4, 8, 8)
+        pred = torch.zeros(1, 1, 4, 8, 8)
+        target = torch.zeros(1, 1, 4, 8, 8)
+
+        # Pred: linear changes (diffs are constant)
+        for t in range(4):
+            pred[:, :, t, :, :] = 0.1 * t
+
+        # Target: quadratic changes (diffs increase)
+        for t in range(4):
+            target[:, :, t, :, :] = 0.1 * t * t
+
+        loss_val = compute_temporal_diff_loss(pred, target)
+        assert loss_val.item() > 0, (
+            f"Different dynamics should produce loss > 0, got {loss_val.item()}"
+        )
+
+    def test_zero_for_identical_dynamics(self):
+        """When pred = target + constant offset, frame-to-frame diffs match, loss ~0."""
+        target = torch.zeros(1, 1, 4, 8, 8)
+        for t in range(4):
+            target[:, :, t, :, :] = 0.1 * t
+
+        # Pred = target + constant offset (diffs are identical)
+        pred = target + 0.5
+
+        loss_val = compute_temporal_diff_loss(pred, target)
+        assert loss_val.item() < 1e-6, (
+            f"Identical dynamics should produce loss ~0, got {loss_val.item()}"
+        )
+
+    def test_3d_input_handles(self):
+        """5D tensor (B,C,T,H,W) should work. Also test T=2 (minimum for 1 diff)."""
+        # T=2: minimum valid temporal dimension for 1 diff
+        pred = torch.rand(2, 1, 2, 8, 8)
+        target = torch.rand(2, 1, 2, 8, 8)
+        loss_val = compute_temporal_diff_loss(pred, target)
+        assert torch.isfinite(loss_val), f"T=2 should work, got {loss_val.item()}"
+        assert loss_val.dim() == 0, "Should return scalar"
+
+        # T=4: standard case
+        pred4 = torch.rand(1, 1, 4, 8, 8)
+        target4 = torch.rand(1, 1, 4, 8, 8)
+        loss_val4 = compute_temporal_diff_loss(pred4, target4)
+        assert torch.isfinite(loss_val4), f"T=4 should work, got {loss_val4.item()}"
+
+
+# ---------------------------------------------------------------------------
+# Temporal variation penalty tests
+# ---------------------------------------------------------------------------
+
+class TestTemporalVarPenalty:
+    def test_negative_value(self):
+        """Result should be negative (rewards variation)."""
+        # Both pred and target have frame variation
+        pred = torch.zeros(1, 1, 4, 8, 8)
+        target = torch.zeros(1, 1, 4, 8, 8)
+        for t in range(4):
+            pred[:, :, t, :, :] = 0.1 * t
+            target[:, :, t, :, :] = 0.15 * t
+
+        penalty = compute_temporal_var_penalty(pred, target, lambda_val=0.1)
+        assert penalty.item() < 0, (
+            f"Penalty should be negative, got {penalty.item()}"
+        )
+
+    def test_capped_at_target_variation(self):
+        """When pred variation exceeds target, penalty is capped at target level.
+
+        penalty = -lambda * min(pred_var, target_var)
+        If pred has 10x more variation, penalty magnitude should equal
+        lambda * target_var, NOT lambda * pred_var.
+        """
+        target = torch.zeros(1, 1, 4, 8, 8)
+        for t in range(4):
+            target[:, :, t, :, :] = 0.1 * t  # small variation
+
+        # Pred has 10x more variation
+        pred = torch.zeros(1, 1, 4, 8, 8)
+        for t in range(4):
+            pred[:, :, t, :, :] = 1.0 * t  # large variation
+
+        lambda_val = 0.1
+        penalty = compute_temporal_var_penalty(pred, target, lambda_val=lambda_val)
+
+        # target_var = mean(|diffs|) = 0.1 (constant diffs of 0.1)
+        # Expected penalty = -0.1 * 0.1 = -0.01 (capped at target, not pred)
+        target_diffs = target[:, :, 1:, :, :] - target[:, :, :-1, :, :]
+        expected_target_var = target_diffs.abs().mean().item()
+        expected_penalty = -lambda_val * expected_target_var
+
+        assert abs(penalty.item() - expected_penalty) < 1e-5, (
+            f"Penalty should be capped at target variation: "
+            f"expected {expected_penalty:.6f}, got {penalty.item():.6f}"
+        )
+
+    def test_zero_for_single_frame(self):
+        """T=1 input (no diffs possible) should return 0."""
+        pred = torch.rand(1, 1, 1, 8, 8)
+        target = torch.rand(1, 1, 1, 8, 8)
+        penalty = compute_temporal_var_penalty(pred, target, lambda_val=0.1)
+        assert penalty.item() == 0.0, (
+            f"T=1 should return 0, got {penalty.item()}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Temporal weighting tests
+# ---------------------------------------------------------------------------
+
+class TestTemporalWeighting:
+    def test_later_timesteps_weighted_more(self):
+        """With weights [1.0, 1.5, 2.0, 2.5], error at later timesteps contributes more.
+
+        If loss tensor is 1.0 everywhere, weighted mean should be
+        (1.0+1.5+2.0+2.5)/4 = 1.75, not 1.0 (unweighted).
+        """
+        loss_tensor = torch.ones(1, 1, 4, 8, 8)
+        weights = [1.0, 1.5, 2.0, 2.5]
+        weighted_loss = apply_temporal_weights(loss_tensor, weights)
+
+        expected = (1.0 + 1.5 + 2.0 + 2.5) / 4.0  # = 1.75
+        assert abs(weighted_loss.item() - expected) < 1e-5, (
+            f"Expected weighted mean ~{expected}, got {weighted_loss.item()}"
+        )
+
+    def test_broadcast_shape(self):
+        """Function should accept (B,C,T,H,W) and return a scalar."""
+        loss_tensor = torch.rand(2, 3, 4, 16, 16)
+        weights = [1.0, 1.5, 2.0, 2.5]
+        result = apply_temporal_weights(loss_tensor, weights)
+        assert result.dim() == 0, f"Expected scalar, got dim={result.dim()}"
+        assert torch.isfinite(result), f"Result not finite: {result.item()}"
 
 
 # ---------------------------------------------------------------------------
