@@ -7,13 +7,13 @@
 
 ### Evaluation & Metrics
 
-- [ ] **EVAL-01**: Training loop logs per-timestep MAE, RMSE, and correlation during validation
-- [ ] **EVAL-02**: CSI (Critical Success Index) computed and logged per epoch using extreme threshold
-- [ ] **EVAL-03**: HSS (Heidke Skill Score) computed and logged per epoch
-- [ ] **EVAL-04**: Persistence baseline MAE computed and skill-over-persistence reported per epoch
-- [ ] **EVAL-05**: SSIM logged as standalone validation metric (separate from composite loss)
-- [ ] **EVAL-06**: Peak flux error (predicted max vs actual max) logged per epoch
-- [ ] **EVAL-07**: Temporal variation ratio (pred variation / target variation) logged per epoch
+- [x] **EVAL-01**: Training loop logs per-timestep MAE, RMSE, and correlation during validation
+- [x] **EVAL-02**: CSI (Critical Success Index) computed and logged per epoch using extreme threshold
+- [x] **EVAL-03**: HSS (Heidke Skill Score) computed and logged per epoch
+- [x] **EVAL-04**: Persistence baseline MAE computed and skill-over-persistence reported per epoch
+- [x] **EVAL-05**: SSIM logged as standalone validation metric (separate from composite loss)
+- [x] **EVAL-06**: Peak flux error (predicted max vs actual max) logged per epoch
+- [x] **EVAL-07**: Temporal variation ratio (pred variation / target variation) logged per epoch
 
 ### Loss Function
 
@@ -71,13 +71,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVAL-01 | Phase 7 | Pending |
-| EVAL-02 | Phase 7 | Pending |
-| EVAL-03 | Phase 7 | Pending |
-| EVAL-04 | Phase 7 | Pending |
-| EVAL-05 | Phase 7 | Pending |
-| EVAL-06 | Phase 7 | Pending |
-| EVAL-07 | Phase 7 | Pending |
+| EVAL-01 | Phase 7 | Complete |
+| EVAL-02 | Phase 7 | Complete |
+| EVAL-03 | Phase 7 | Complete |
+| EVAL-04 | Phase 7 | Complete |
+| EVAL-05 | Phase 7 | Complete |
+| EVAL-06 | Phase 7 | Complete |
+| EVAL-07 | Phase 7 | Complete |
 | LOSS-01 | Phase 8 | Pending |
 | LOSS-02 | Phase 8 | Pending |
 | LOSS-03 | Phase 8 | Pending |

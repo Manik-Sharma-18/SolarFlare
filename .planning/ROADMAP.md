@@ -48,7 +48,7 @@ See .planning/MILESTONES.md for v2.0 details.
 **Plans:** 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — TDD: Implement all metric computation functions (CSI, HSS, persistence, SSIM, peak flux, temporal variation, per-timestep RMSE/correlation) with tests
+- [x] 07-01-PLAN.md — TDD: Implement all metric computation functions (CSI, HSS, persistence, SSIM, peak flux, temporal variation, per-timestep RMSE/correlation) with tests
 - [ ] 07-02-PLAN.md — Wire metrics into validate(), update callers, add evaluation config and metric visualization
 
 ### Phase 8: Loss Function Overhaul
@@ -112,7 +112,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 
 | Phase                     | Plans Complete | Status      | Completed |
 | ------------------------- | -------------- | ----------- | --------- |
-| 7. Evaluation Metrics     | 0/2            | Planning    | -         |
+| 7. Evaluation Metrics     | 1/2            | In Progress | -         |
 | 8. Loss Function Overhaul | 0/TBD          | Not started | -         |
 | 9. Training Policy        | 0/TBD          | Not started | -         |
 | 10. Architecture Scaling  | 0/TBD          | Not started | -         |
