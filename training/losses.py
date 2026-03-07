@@ -5,11 +5,15 @@ Combines multiple loss components:
 - L1 (MAE): Basic reconstruction loss
 - MS-SSIM: Multi-scale structural similarity for sharper predictions
 - Weighted MAE: Higher weight for extreme flux values (solar flares)
+- Asymmetric extreme loss: Penalizes underestimation above threshold
+- Temporal difference loss: L1 on frame-to-frame changes
+- Temporal variation penalty: Rewards prediction variation up to target level
+- Per-timestep weighting: Later timesteps contribute more to loss
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from utils.mps_ops import safe_outer, is_mps
 
@@ -253,41 +257,174 @@ def ms_ssim(
 
 
 class WeightedMAELoss(nn.Module):
-    """
-    MAE loss with higher weight for extreme values.
+    """MAE loss with higher weight for extreme values using absolute threshold.
 
-    Helps the model focus on predicting high-magnitude solar flare regions.
+    Uses binary weighting based on an absolute threshold: pixels with
+    |target| > threshold get extreme_weight, all others get base_weight.
+    This ensures consistent penalty across samples regardless of batch content.
+
+    Args:
+        base_weight: Weight for normal regions (|target| <= threshold).
+        extreme_weight: Weight for extreme regions (|target| > threshold).
+        threshold: Absolute threshold for extreme region classification.
     """
 
-    def __init__(self, base_weight: float = 1.0, extreme_weight: float = 2.0):
-        """
-        Args:
-            base_weight: Weight for normal regions
-            extreme_weight: Additional weight multiplier for extreme values
-        """
+    def __init__(
+        self,
+        base_weight: float = 1.0,
+        extreme_weight: float = 3.0,
+        threshold: float = 0.3456,
+    ):
         super().__init__()
         self.base_weight = base_weight
         self.extreme_weight = extreme_weight
+        self.threshold = threshold
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Compute weighted MAE.
+        """Compute weighted MAE with absolute threshold binary weighting.
 
-        Weight increases with absolute target value, emphasizing extreme regions.
+        Args:
+            pred: Predicted tensor.
+            target: Target tensor (same shape as pred).
+
+        Returns:
+            Scalar weighted MAE loss.
         """
         abs_error = torch.abs(pred - target)
 
-        # Weight based on target magnitude: higher flux = higher weight
-        # Use smooth weighting based on absolute target value
-        abs_target = torch.abs(target)
-        max_target = abs_target.max() + 1e-6
-        normalized_magnitude = abs_target / max_target
-
-        # Weight: base_weight + extreme_weight * normalized_magnitude
-        weights = self.base_weight + self.extreme_weight * normalized_magnitude
+        # Binary weighting: base_weight below threshold, extreme_weight above
+        extreme_mask = (target.abs() > self.threshold).float()
+        weights = self.base_weight + (self.extreme_weight - self.base_weight) * extreme_mask
 
         weighted_error = weights * abs_error
         return weighted_error.mean()
+
+
+class AsymmetricExtremeLoss(nn.Module):
+    """Asymmetric loss that penalizes underestimation more in extreme regions.
+
+    Above the extreme threshold, underestimation (pred < target) is penalized
+    alpha times more than overestimation. Below the threshold, the loss is
+    symmetric (standard MAE).
+
+    Args:
+        alpha: Underestimation penalty multiplier for extreme regions.
+        threshold: Absolute threshold for extreme region classification.
+    """
+
+    def __init__(self, alpha: float = 2.0, threshold: float = 0.3456):
+        super().__init__()
+        self.alpha = alpha
+        self.threshold = threshold
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute asymmetric extreme loss.
+
+        Args:
+            pred: Predicted tensor.
+            target: Target tensor (same shape as pred).
+
+        Returns:
+            Scalar asymmetric loss.
+        """
+        above_threshold = (target.abs() > self.threshold).float()
+        underestimation = (target - pred).clamp(min=0)  # positive where pred < target
+        overestimation = (pred - target).clamp(min=0)    # positive where pred > target
+
+        # Above threshold: asymmetric (alpha * under + over)
+        # Below threshold: symmetric (under + over = |pred - target|)
+        error = (
+            above_threshold * (self.alpha * underestimation + overestimation)
+            + (1 - above_threshold) * (underestimation + overestimation)
+        )
+        return error.mean()
+
+
+def compute_temporal_diff_loss(
+    pred: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    """L1 loss on frame-to-frame changes (temporal dynamics matching).
+
+    Computes the difference between consecutive frames for both prediction
+    and target, then computes L1 loss between these difference sequences.
+    This encourages the model to match the temporal dynamics, not just
+    the absolute values.
+
+    Args:
+        pred: Predicted tensor (B, C, T, H, W).
+        target: Target tensor (B, C, T, H, W).
+
+    Returns:
+        Scalar temporal difference loss. Returns 0.0 if T <= 1.
+    """
+    T = pred.shape[2]
+    if T <= 1:
+        return torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
+
+    pred_diffs = pred[:, :, 1:, :, :] - pred[:, :, :-1, :, :]
+    target_diffs = target[:, :, 1:, :, :] - target[:, :, :-1, :, :]
+    return F.l1_loss(pred_diffs, target_diffs)
+
+
+def compute_temporal_var_penalty(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    lambda_val: float = 0.1,
+) -> torch.Tensor:
+    """Negative loss that rewards prediction variation up to target level.
+
+    Computes a penalty that is negative (subtracts from total loss) when
+    the prediction has temporal variation. The penalty is capped at the
+    target's variation level to prevent noisy/jittery predictions from
+    being rewarded beyond what the data naturally exhibits.
+
+    penalty = -lambda * min(pred_variation, target_variation)
+
+    Args:
+        pred: Predicted tensor (B, C, T, H, W).
+        target: Target tensor (B, C, T, H, W).
+        lambda_val: Penalty scaling factor.
+
+    Returns:
+        Scalar variation penalty (negative value). Returns 0.0 if T <= 1.
+    """
+    T = pred.shape[2]
+    if T <= 1:
+        return torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
+
+    pred_diffs = pred[:, :, 1:, :, :] - pred[:, :, :-1, :, :]
+    target_diffs = target[:, :, 1:, :, :] - target[:, :, :-1, :, :]
+
+    pred_var = pred_diffs.abs().mean()
+    target_var = target_diffs.abs().mean()
+
+    # Cap: no reward for exceeding target variation
+    capped_var = torch.min(pred_var, target_var)
+    return -lambda_val * capped_var
+
+
+def apply_temporal_weights(
+    loss_tensor: torch.Tensor, weights: List[float]
+) -> torch.Tensor:
+    """Apply per-timestep weights to a 5D loss tensor before reduction.
+
+    Broadcasts weights along the temporal dimension (dim=2) and computes
+    the weighted mean across all dimensions. Later timesteps can be given
+    higher weights to prioritize future prediction accuracy.
+
+    Args:
+        loss_tensor: 5D tensor (B, C, T, H, W) of per-element losses.
+        weights: List of per-timestep weights (truncated or padded to T).
+
+    Returns:
+        Scalar weighted mean loss.
+    """
+    T = loss_tensor.shape[2]
+    tw = torch.tensor(
+        weights[:T], device=loss_tensor.device, dtype=loss_tensor.dtype
+    )
+    tw = tw.view(1, 1, T, 1, 1)
+    return (loss_tensor * tw).mean()
 
 
 class CompositeLoss(nn.Module):
