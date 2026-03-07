@@ -63,7 +63,12 @@ Plans:
 3. WeightedMAE uses an absolute extreme threshold (not per-sample relative normalization), and asymmetric loss applies a configurable alpha penalty for underestimating extreme regions
 4. Each loss component (L1, MS-SSIM, WeightedMAE, temporal_diff, temporal_var, asymmetric) is logged individually during training, not just the total
 5. Temporal variation penalty encourages the model to produce frame-to-frame variation, with a configurable lambda weight
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — TDD: Implement loss components (fix WeightedMAE, AsymmetricExtremeLoss, temporal diff/var/weighting functions)
+- [ ] 08-02-PLAN.md — Restructure CompositeLoss with 6-component temporal-aware forward, update config and factory
+- [ ] 08-03-PLAN.md — Wire per-component loss logging into training loop and visualization
 
 ### Phase 9: Training Policy
 
@@ -113,8 +118,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | Phase                     | Plans Complete | Status      | Completed |
 | ------------------------- | -------------- | ----------- | --------- |
 | 7. Evaluation Metrics     | 1/2            | In Progress | -         |
-| 8. Loss Function Overhaul | 0/TBD          | Not started | -         |
+| 8. Loss Function Overhaul | 0/3            | Not started | -         |
 | 9. Training Policy        | 0/TBD          | Not started | -         |
 | 10. Architecture Scaling  | 0/TBD          | Not started | -         |
 | 11. Integration Testing   | 0/TBD          | Not started | -         |
-
