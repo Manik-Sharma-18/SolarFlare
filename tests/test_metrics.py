@@ -309,3 +309,130 @@ class TestComputeCorrelationPerTimestep:
         assert len(result) == 4
         for val in result:
             assert isinstance(val, float)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: validate() returns structured dict
+# ---------------------------------------------------------------------------
+class TestValidateReturnsDict:
+    """Integration tests verifying validate() returns a dict with all metric keys."""
+
+    @pytest.fixture
+    def tiny_model_and_loader(self):
+        """Create a tiny model and synthetic dataloader for integration testing."""
+        from models import SolarFluxPredictor
+        from torch.utils.data import DataLoader, TensorDataset
+
+        model = SolarFluxPredictor(
+            input_channels=1,
+            output_channels=1,
+            t_out=2,
+            channels=[4, 8, 16],
+            kernel_size=3,
+            downsample_input=False,
+            use_checkpointing=False,
+            dropout_rate=0.0,
+        )
+        device = torch.device("cpu")
+        model = model.to(device)
+
+        # Create synthetic data: B=2, C=1, T_in=4, H=32, W=32
+        X = torch.randn(2, 1, 4, 32, 32)
+        # Y: B=2, C=1, T_out=2, H=32, W=32
+        Y = torch.randn(2, 1, 2, 32, 32)
+        # Metadata placeholder (dataset_id, start_idx)
+        meta1 = torch.tensor([0, 0])
+        meta2 = torch.tensor([0, 1])
+
+        dataset = TensorDataset(X, Y, torch.stack([meta1, meta2]))
+        loader = DataLoader(dataset, batch_size=2, shuffle=False)
+        return model, loader, device
+
+    def test_validate_returns_dict_with_all_keys(self, tiny_model_and_loader):
+        """validate() must return a dict with all expected metric keys."""
+        from training.trainer import validate
+
+        model, loader, device = tiny_model_and_loader
+
+        result = validate(
+            model, loader, device,
+            use_amp=False,
+            show_progress=False,
+            output_channels=1,
+            extreme_threshold=0.3456,
+            ssim_data_range=2.0,
+        )
+
+        assert isinstance(result, dict), f"validate() should return dict, got {type(result)}"
+
+        expected_keys = [
+            'val_loss',
+            'val_mae_per_timestep',
+            'val_rmse_per_timestep',
+            'val_correlation_per_timestep',
+            'val_csi',
+            'val_csi_per_timestep',
+            'val_hss',
+            'val_hss_per_timestep',
+            'val_ssim',
+            'val_ssim_per_timestep',
+            'persistence_mae_per_timestep',
+            'persistence_skill_per_timestep',
+            'persistence_csi',
+            'persistence_hss',
+            'peak_flux_error_per_timestep',
+            'temporal_variation_ratio',
+        ]
+        for key in expected_keys:
+            assert key in result, f"Missing key: {key}"
+
+    def test_validate_dict_value_types(self, tiny_model_and_loader):
+        """Validate that dict values have correct types (float vs list)."""
+        from training.trainer import validate
+
+        model, loader, device = tiny_model_and_loader
+
+        result = validate(
+            model, loader, device,
+            use_amp=False,
+            show_progress=False,
+            output_channels=1,
+            extreme_threshold=0.3456,
+            ssim_data_range=2.0,
+        )
+
+        # Scalar metrics should be float
+        for key in ['val_loss', 'val_csi', 'val_hss', 'val_ssim',
+                     'persistence_csi', 'persistence_hss', 'temporal_variation_ratio']:
+            assert isinstance(result[key], float), f"{key} should be float, got {type(result[key])}"
+
+        # Per-timestep metrics should be lists
+        for key in ['val_mae_per_timestep', 'val_rmse_per_timestep',
+                     'val_correlation_per_timestep', 'val_csi_per_timestep',
+                     'val_hss_per_timestep', 'val_ssim_per_timestep',
+                     'persistence_mae_per_timestep', 'persistence_skill_per_timestep',
+                     'peak_flux_error_per_timestep']:
+            assert isinstance(result[key], list), f"{key} should be list, got {type(result[key])}"
+            assert len(result[key]) == 2, f"{key} should have 2 elements (T_out=2)"
+
+
+class TestHistoryNewKeys:
+    """Verify the history dict structure includes new metric keys."""
+
+    def test_history_has_new_keys(self):
+        """The history dict initialized in train_model() should have new metric keys."""
+        # We can test this by checking the expected keys exist in the template
+        expected_new_keys = [
+            'val_csi', 'val_hss', 'val_ssim', 'val_ssim_per_timestep',
+            'persistence_skill_per_timestep', 'persistence_csi', 'persistence_hss',
+            'peak_flux_error_per_timestep', 'temporal_variation_ratio',
+            'val_rmse_per_timestep', 'val_correlation_per_timestep',
+            'val_csi_per_timestep', 'val_hss_per_timestep',
+            'persistence_mae_per_timestep',
+        ]
+        # Import and check the code has the new keys
+        import inspect
+        from training.trainer import train_model
+        source = inspect.getsource(train_model)
+        for key in expected_new_keys:
+            assert f"'{key}'" in source, f"History key '{key}' not found in train_model source"
