@@ -55,7 +55,7 @@ def train_epoch(
     output_channels: int = 1,
     max_consecutive_nan: int = 10,
     grad_norm_warning_threshold: float = 100.0
-) -> Tuple[float, int]:
+) -> Tuple[float, int, Optional[Dict[str, float]]]:
     """
     Train for one epoch with NaN detection and gradient monitoring.
 
@@ -76,9 +76,11 @@ def train_epoch(
         grad_norm_warning_threshold: Log warning when gradient norm exceeds this value
 
     Returns:
-        Tuple of (average_loss, consecutive_nan_count) for the epoch.
+        Tuple of (average_loss, consecutive_nan_count, avg_components) for the epoch.
         Average loss excludes NaN batches. consecutive_nan_count is the
         running count at epoch end (resets on any good batch).
+        avg_components is a dict with per-component averages when loss_fn is
+        CompositeLoss, or None otherwise.
     """
     model.train()
     total_loss = 0.0
@@ -88,6 +90,14 @@ def train_epoch(
     # Default to L1 loss if none provided
     if loss_fn is None:
         loss_fn = nn.L1Loss()
+
+    # Per-component tracking for CompositeLoss
+    use_component_tracking = isinstance(loss_fn, CompositeLoss)
+    component_keys = ['l1', 'ssim', 'extreme', 'temporal_diff', 'temporal_var', 'asymmetric']
+    component_sums = {}
+    if use_component_tracking:
+        for key in component_keys:
+            component_sums[key] = 0.0
 
     iterator = tqdm(dataloader, desc=f"Epoch {epoch}") if show_progress else dataloader
 
@@ -106,7 +116,11 @@ def train_epoch(
             # Y_out may be: (B, 1 or 2, T, H, W)
             Y_target = Y_out[:, :output_channels]
 
-            loss = loss_fn(predictions, Y_target)
+            if use_component_tracking:
+                components = loss_fn(predictions, Y_target, return_components=True)
+                loss = components['total']
+            else:
+                loss = loss_fn(predictions, Y_target)
 
         # NaN/Inf detection — skip batch before backward pass
         if torch.isnan(loss) or torch.isinf(loss):
@@ -143,11 +157,18 @@ def train_epoch(
         total_loss += loss.item()
         valid_batches += 1
 
+        if use_component_tracking:
+            for key in component_keys:
+                component_sums[key] += components[key].item()
+
         if show_progress:
             iterator.set_postfix({'loss': f'{loss.item():.6f}'})
 
     avg_loss = total_loss / valid_batches if valid_batches > 0 else float('nan')
-    return avg_loss, consecutive_nan_count
+    avg_components = None
+    if use_component_tracking and valid_batches > 0:
+        avg_components = {key: component_sums[key] / valid_batches for key in component_keys}
+    return avg_loss, consecutive_nan_count, avg_components
 
 
 def validate(
@@ -515,6 +536,12 @@ def train_model(
         'val_csi_per_timestep': [],
         'val_hss_per_timestep': [],
         'persistence_mae_per_timestep': [],
+        'train_l1': [],
+        'train_ssim': [],
+        'train_extreme': [],
+        'train_temporal_diff': [],
+        'train_temporal_var': [],
+        'train_asymmetric': [],
     }
 
     # Resume from checkpoint if requested
@@ -596,7 +623,7 @@ def train_model(
 
             # Train (may raise NaNLossError)
             try:
-                train_loss, _ = train_epoch(
+                train_loss, _, avg_components = train_epoch(
                     model, train_loader, optimizer, scaler, device,
                     tf_ratio, epoch, loss_fn, use_amp, grad_clip, show_progress,
                     output_channels, max_consecutive_nan, grad_norm_warning_threshold
@@ -622,6 +649,10 @@ def train_model(
 
             # Log epoch summary
             print(f"  Train Loss: {train_loss:.6f}")
+            if avg_components:
+                print(f"  Loss: {train_loss:.6f} | TDiff: {avg_components['temporal_diff']:.4f}"
+                      f" | TVar: {avg_components['temporal_var']:.4f}"
+                      f" | Extreme: {avg_components['extreme']:.4f}")
             print(f"  Val Loss:   {val_loss:.6f}")
             print(f"  Val MAE:    {val_mae_per_timestep}")
             print(f"  CSI: {val_metrics['val_csi']:.4f} | HSS: {val_metrics['val_hss']:.4f}"
@@ -673,6 +704,15 @@ def train_model(
             history['val_csi_per_timestep'].append(val_metrics['val_csi_per_timestep'])
             history['val_hss_per_timestep'].append(val_metrics['val_hss_per_timestep'])
             history['persistence_mae_per_timestep'].append(val_metrics['persistence_mae_per_timestep'])
+
+            # Log per-component loss averages
+            component_keys = ['l1', 'ssim', 'extreme', 'temporal_diff', 'temporal_var', 'asymmetric']
+            if avg_components:
+                for key in component_keys:
+                    history[f'train_{key}'].append(avg_components[key])
+            else:
+                for key in component_keys:
+                    history[f'train_{key}'].append(0.0)
 
             # Free device caches between epochs (GPU/MPS memory)
             clear_device_cache(device)
