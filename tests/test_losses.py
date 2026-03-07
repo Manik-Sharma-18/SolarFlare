@@ -599,3 +599,105 @@ class TestGetLossFunction:
         """Unknown loss type should raise ValueError."""
         with pytest.raises(ValueError, match="Unknown loss type"):
             get_loss_function({"type": "mse"})
+
+
+# ---------------------------------------------------------------------------
+# train_epoch component return tests
+# ---------------------------------------------------------------------------
+
+class TestTrainEpochComponents:
+    """Tests for per-component loss return from train_epoch (LOSS-07)."""
+
+    def _make_tiny_model_and_loader(self):
+        """Create minimal model and dataloader for train_epoch testing."""
+        from torch.utils.data import DataLoader, TensorDataset
+
+        class TinyModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(1, 1, 1)
+
+            def forward(self, x, teacher_forcing_ratio=0.0, target=None):
+                B = x.shape[0]
+                # Output shape: (B, 1, 4, H, W) to match expected t_out=4
+                out = x[:, :1, :4, :, :]  # take first 4 timesteps
+                return self.conv(
+                    out.reshape(-1, 1, *out.shape[-2:])
+                ).reshape(B, 1, 4, *out.shape[-2:])
+
+        model = TinyModel()
+        # Create tiny dataset: (B, C, T_in, H, W) input, (B, C, T_out, H, W) output
+        X = torch.rand(2, 1, 10, 16, 16)
+        Y = torch.rand(2, 1, 4, 16, 16)
+        indices = torch.zeros(2, 2)  # dummy (ds_id, start_idx)
+        dataset = TensorDataset(X, Y, indices)
+        loader = DataLoader(dataset, batch_size=1)
+        return model, loader
+
+    def test_train_epoch_returns_components(self):
+        """When loss_fn is CompositeLoss, train_epoch returns 3-tuple with component dict."""
+        from training.trainer import train_epoch
+
+        model, loader = self._make_tiny_model_and_loader()
+        device = torch.device('cpu')
+        model = model.to(device)
+        loss_fn = CompositeLoss(use_ms_ssim=False)
+        loss_fn = loss_fn.to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+        from utils.device import get_grad_scaler
+        scaler = get_grad_scaler(False, device)
+
+        result = train_epoch(
+            model, loader, optimizer, scaler, device,
+            teacher_forcing_ratio=0.0, epoch=1, loss_fn=loss_fn,
+            use_amp=False, show_progress=False
+        )
+
+        # Should be a 3-tuple
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert len(result) == 3, f"Expected 3-tuple, got {len(result)}-tuple"
+
+        avg_loss, nan_count, components = result
+        assert isinstance(avg_loss, float)
+        assert isinstance(nan_count, int)
+
+        # Components should be a dict with the 6 component keys
+        assert isinstance(components, dict), f"Expected dict, got {type(components)}"
+        expected_keys = {'l1', 'ssim', 'extreme', 'temporal_diff', 'temporal_var', 'asymmetric'}
+        assert set(components.keys()) == expected_keys, (
+            f"Expected keys {expected_keys}, got {set(components.keys())}"
+        )
+
+        # All values should be finite floats
+        for key, val in components.items():
+            assert isinstance(val, float), f"{key} should be float, got {type(val)}"
+            assert not (val != val), f"{key} is NaN"  # NaN check
+
+    def test_train_epoch_returns_none_for_non_composite(self):
+        """When loss_fn is nn.L1Loss, train_epoch returns 3-tuple with None components."""
+        from training.trainer import train_epoch
+
+        model, loader = self._make_tiny_model_and_loader()
+        device = torch.device('cpu')
+        model = model.to(device)
+        loss_fn = nn.L1Loss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+        from utils.device import get_grad_scaler
+        scaler = get_grad_scaler(False, device)
+
+        result = train_epoch(
+            model, loader, optimizer, scaler, device,
+            teacher_forcing_ratio=0.0, epoch=1, loss_fn=loss_fn,
+            use_amp=False, show_progress=False
+        )
+
+        # Should be a 3-tuple
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert len(result) == 3, f"Expected 3-tuple, got {len(result)}-tuple"
+
+        avg_loss, nan_count, components = result
+        assert isinstance(avg_loss, float)
+        assert isinstance(nan_count, int)
+        assert components is None, f"Expected None for non-CompositeLoss, got {type(components)}"
