@@ -1,123 +1,99 @@
-# Feature Landscape: PyTorch Pipeline Stabilization
+# Feature Landscape: v3.0 Temporal Dynamics & Flare Detection
 
-**Domain:** Production-quality PyTorch training pipeline (ConvLSTM encoder-decoder)
-**Researched:** 2026-02-02
-**Confidence:** MEDIUM
+**Domain:** Spatiotemporal solar flux forecasting (ConvLSTM encoder-decoder)
+**Researched:** 2026-03-07
+**Confidence:** HIGH (diagnostic-validated priorities)
+
+## Diagnostic Context
+
+Current model performance (from diagnostic run 2026-03-07):
+- **Temporal variation ratio: 0.056** -- model predicts only 6% of real frame-to-frame change
+- **CSI: 0.05** -- almost no flare detection (massive FN count)
+- **Skill vs persistence: +3-9%** -- barely beats naive "copy last frame"
+- **No overfitting** -- train/val/test metrics similar, headroom for capacity
 
 ## Table Stakes
 
-Features expected from any production ML training pipeline.
+Features required for a credible spatiotemporal forecaster.
 
-### Device Management
+### Temporal Dynamics
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| Temporal difference loss | Low | HIGH -- forces model to match rate of change | None |
+| Eliminate teacher forcing (tf=0) | Config only | HIGH -- forces robust autoregressive dynamics | None |
+| Temporal weighting (penalize later steps more) | Low | MEDIUM -- allocates capacity to harder predictions | None |
 
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Auto-detect best device (CUDA > MPS > CPU) | Low | Only detects CUDA. MPS absent. Config uses boolean use_cuda. |
-| MPS fallback for unsupported ops | Medium | No MPS awareness at all. |
-| Device-aware AMP handling | Medium | get_amp_context handles CUDA/CPU. MPS not handled. |
-| Consistent tensor placement | Low | Looks correct but untested on MPS. |
+### Evaluation Metrics
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| CSI (Critical Success Index) | Low | HIGH -- standard space weather metric | Extreme threshold |
+| HSS (Heidke Skill Score) | Low | HIGH -- measures improvement over chance | CSI infrastructure |
+| Persistence baseline comparison | Low | HIGH -- null hypothesis for temporal models | None |
+| Wire existing metrics into training loop | Low | MEDIUM -- currently computed but not logged | None |
+| SSIM as standalone validation metric | Low | MEDIUM -- structural similarity tracking | Existing SSIM code |
 
-### Checkpoint and Resume
-
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Full checkpoint resume (model + optimizer + scheduler + epoch + best_loss) | Medium | Saves state but train_model() has no resume path. |
-| Normalization params in checkpoint | Low | Only in metadata.json, not checkpoint. |
-| Atomic checkpoint writes (write-to-temp-then-rename) | Low | Uses torch.save() directly. No atomic write. |
-
-### Error Handling and Validation
-
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Config validation before training | Medium | Zero validation. config.get() with defaults masks missing keys. |
-| NaN/Inf detection in loss | Low | No NaN checking. Training continues with NaN loss. |
-| Data loading failure threshold | Low | Catches all exceptions silently. Could train on 1 file out of 100. |
-| Gradient health monitoring | Low | clip_grad_norm_ called but return value discarded. |
-
-### Memory Management
-
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Epoch-boundary cache cleanup | Low | No torch.cuda.empty_cache() or torch.mps.empty_cache(). |
-| Incremental uncertainty (Welford) | Medium | Stacks all N predictions in memory. O(N) VRAM. |
-| DataLoader pin_memory awareness | Low | Hardcoded pin_memory=True. Should be CUDA-only. |
-
-### Data Loading
-
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Lazy/memory-mapped data loading | High | All cubes in RAM for entire training. |
-| Reproducible data splits | Low | Augmentation uses unseeded np.random. |
-| Worker process error handling | Low | num_workers=2 with no worker_init_fn. |
-
-### Test Coverage
-
-| Feature | Complexity | Current State |
-|---------|------------|---------------|
-| Model forward pass shape tests | Low | Zero tests. No tests/ directory. |
-| Loss function unit tests | Low | Zero tests. |
-| Checkpoint save/load roundtrip | Low | Zero tests. |
-| Data pipeline integration test | Medium | Zero tests. |
-| Device compatibility smoke test | Low | Zero tests. |
+### Extreme Region Focus
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| Fix WeightedMAE (absolute threshold) | Low | HIGH -- consistent penalty regardless of frame content | Existing WeightedMAE |
+| Increase extreme_weight to 3.0+ | Config only | MEDIUM -- shifts optimization focus to flare regions | None |
 
 ## Differentiators
 
-Beyond basic reliability — valuable for cross-platform robustness.
+Features that would meaningfully improve prediction quality.
 
-| Feature | Complexity | Notes |
-|---------|------------|-------|
-| MPS-specific op alternatives | High | Actual MPS implementations, not CPU fallback |
-| Training run reproducibility (full seeding) | Low | torch/numpy/python seeds + deterministic mode |
-| Graceful interrupt handling (SIGINT) | Low | Save checkpoint on Ctrl+C |
-| Per-epoch memory profiling | Low | Log peak memory per device type |
-| Config schema with types and ranges | Medium | Dataclasses or explicit validation |
+### Architecture Scaling
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| Wider channels [32, 64, 128] | Config only | MEDIUM -- more representational capacity | Dropout for regularization |
+| Kernel size 5 | Config only | MEDIUM -- broader spatial context per step | None |
+| Spatial attention gate | Medium | HIGH -- learned focus on active regions | Skip connections |
+| Temporal attention over encoder | Medium | HIGH -- weight input frames by relevance | Encoder output access |
+| MC Dropout (0.15) | Config only | MEDIUM -- regularization + uncertainty | None |
 
-## Anti-Features
+### Loss Function Enhancements
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| Asymmetric loss (penalize missed flares) | Low | HIGH -- operationally correct bias | Extreme threshold |
+| Temporal variation penalty | Low | MEDIUM -- rewards predicting change | None |
+| Delta head normalization | Low | MEDIUM -- better numerical range for learning | Output head access |
 
-Things to NOT build during stabilization.
+### Training Policy
+| Feature | Complexity | Impact | Dependencies |
+|---------|-----------|--------|-------------|
+| Cosine LR scheduler | Config only | MEDIUM -- better convergence in later epochs | None |
+| Balanced augmentation | Config only | MEDIUM -- 3x effective dataset | None |
+| Class-imbalanced sampling | Medium | HIGH -- rebalances flare vs quiet-sun exposure | Data pipeline access |
+| Peak flux error metric | Low | MEDIUM -- interpretable flare prediction quality | None |
 
-| Anti-Feature | Why Avoid |
-|--------------|-----------|
-| Multi-GPU / DistributedDataParallel | Massive complexity. Stabilize single-device first. |
-| Hyperparameter tuning (Optuna/Ray) | Adds dependencies, complicates entry point. |
-| TensorBoard / W&B integration | Adds dependency, not needed for stabilization. |
-| torch.compile | Poor MPS support, can introduce subtle bugs. |
-| Model architecture changes | Stabilization means model stays identical. |
-| Inference API refactor | Separate concern from stabilization. |
-| Data format migration (HDF5/Zarr) | np.load(mmap_mode='r') is sufficient for 10-50GB. |
-| Additional validation metrics | Scope creep — defer to future milestone. |
+## Anti-Features (Defer to v4.0+)
 
-## Feature Dependencies
+| Feature | Reason to Defer |
+|---------|----------------|
+| Progressive temporal curriculum (t_out 1->2->4) | Adds multi-stage complexity; try simpler temporal fixes first |
+| Temporal difference input channels | Adds input complexity; let attention learn what matters |
+| Multi-scale decoder | High complexity, uncertain benefit over attention |
+| Feed frame-to-frame diffs as input | Let temporal difference loss + attention handle this first |
 
-1. Config validation first — catches errors early
-2. Device detection before MPS work — must know device before device-specific decisions
-3. Atomic writes before resume — don't add resume that loads corrupted checkpoints
-4. NaN detection before gradient monitoring — basic health check before diagnostics
+## Priority by Impact
 
-## MVP Priority Order
+**Highest impact (fix the broken temporal dynamics):**
+1. Temporal difference loss -- directly attacks the 0.056 variation ratio
+2. Eliminate teacher forcing -- forces honest autoregressive predictions
+3. Temporal weighting -- allocates gradient budget to harder timesteps
 
-**Must-have (Foundation):**
-1. Config validation
-2. Device auto-detection (CUDA > MPS > CPU)
-3. NaN/Inf detection in loss
-4. Data loading failure threshold
-5. Atomic checkpoint writes
-6. Checkpoint resume support
-7. Basic test suite
+**Second priority (fix flare detection):**
+4. Fix WeightedMAE + increase extreme_weight
+5. Asymmetric loss
+6. Class-imbalanced sampling
 
-**Should-have (Hardening):**
-8. MPS op audit and alternatives
-9. Normalization params in checkpoint
-10. Welford's uncertainty estimation
-11. Epoch-boundary cache cleanup
-12. pin_memory device awareness
-13. Lazy data loading (mmap)
-14. Graceful interrupt handling
+**Third priority (scale model):**
+7. Spatial attention + temporal attention
+8. Wider channels + kernel size 5
+9. MC Dropout
 
-**Nice-to-have (Polish):**
-15. Reproducible seeding
-16. Gradient health monitoring
-17. Per-epoch memory profiling
+**Fourth priority (measure properly):**
+10. CSI/HSS/persistence baseline in training loop
 
 ---
-*Feature landscape analysis: 2026-02-02*
+*Research completed: 2026-03-07*

@@ -1,355 +1,164 @@
 # Project Research Summary
 
-**Project:** SolarFlare v2 — Stabilization & Cross-Platform
-**Domain:** Production ML Training Pipeline (PyTorch ConvLSTM)
-**Researched:** 2026-02-02
-**Confidence:** HIGH (codebase-specific), MEDIUM (runtime MPS verification needed)
+**Project:** SolarFlare v3.0 -- Temporal Dynamics & Flare Detection
+**Domain:** Spatiotemporal solar flux forecasting (ConvLSTM encoder-decoder)
+**Researched:** 2026-03-07
+**Confidence:** HIGH
 
 ## Executive Summary
 
-SolarFlare is a PyTorch-based ConvLSTM encoder-decoder for solar flux prediction. The stabilization milestone focuses on making the existing research prototype production-ready and cross-platform (CUDA + Apple Silicon MPS). Research reveals that the core model architecture is sound, but the pipeline lacks critical production safeguards: no config validation, no checkpoint resume, no NaN detection, silent data loading failures, and Mac users currently fall back to CPU because MPS detection is absent.
+SolarFlare v3.0 addresses two critical deficiencies in the current model: near-zero temporal dynamics (variation ratio of 0.056 -- the model predicts only 6% of real frame-to-frame change) and failed flare detection (CSI of 0.05). The model barely beats a naive persistence baseline (+3-9% skill), indicating it has learned to approximate a time-averaged output rather than genuine forecasting. The root causes are a loss function that does not penalize temporal stationarity, teacher forcing that masks autoregressive weakness, and extreme class imbalance (flare pixels are vastly outnumbered by quiet-sun pixels).
 
-The recommended approach is a layered stabilization strategy that prioritizes risk mitigation and cross-platform compatibility. Start with device detection (unblocks Apple Silicon testing), add config validation and error handling (catch issues early), then tackle data loading improvements (memory-mapped loading for large datasets), and finally add checkpoint resume capability. All core PyTorch operations used in the model are MPS-compatible, but three edge cases need alternatives: `torch.quantile` (uncertainty quantiles), grouped convolution correctness (SSIM loss), and non-contiguous tensor handling.
+The recommended approach is a four-phase incremental improvement: first instrument evaluation metrics so every subsequent change is measurable, then overhaul the loss function with temporal and asymmetric terms, then adjust training policy (LR schedule, sampling, augmentation), and finally scale the architecture with attention mechanisms and wider channels. This order is critical -- architecture changes without loss and training fixes will simply produce a larger model with the same broken dynamics. All features are implementable with existing PyTorch built-ins; no new dependencies are required.
 
-The main risk is MPS-specific correctness bugs that may not surface until runtime on target hardware. Mitigation strategy: unit tests that compare MPS vs CPU outputs element-wise, explicit testing of SSIM grouped convolution, and graceful fallback to CPU for unsupported operations. The existing `_DummyGradScaler` pattern already handles MPS correctly (no GradScaler needed), which reduces AMP integration risk significantly.
+The primary risks center on loss balancing (6-7 composite terms competing for gradient budget), overfitting (4x parameter increase on only 568 samples), and the temporal variation penalty potentially destabilizing training if weighted too aggressively. Each risk has concrete mitigation strategies: per-component loss logging, dropout + augmentation for regularization, and conservative initial weights with monitoring. The phased approach itself is a risk mitigation strategy -- each phase delivers measurable improvements before the next phase adds complexity.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing stack requires no new runtime dependencies. All enhancements use PyTorch and NumPy built-in capabilities. Device detection uses `torch.backends.mps` (bundled), memory-mapped loading uses `np.load(mmap_mode='r')` (bundled), and checkpoint resume extends existing `torch.save/load` (bundled). The only new dependency is `pytest` for test coverage (dev dependency).
+No new runtime dependencies are required. All v3.0 features -- temporal difference loss, attention mechanisms, cosine LR scheduling, MC Dropout, class-imbalanced sampling -- use PyTorch built-in operations and modules. This is a significant advantage: zero dependency risk, zero compatibility risk, and all features are MPS-compatible.
 
-**Core technologies:**
-- **PyTorch 2.3+**: Required for MPS autocast support — verify exact version on target Mac before implementing MPS-specific code paths
-- **NumPy memory mapping**: `np.load(mmap_mode='r')` enables lazy loading without format migration — OS manages virtual memory automatically
-- **Existing _DummyGradScaler**: Already handles non-CUDA devices correctly — route MPS through this, no new scaler logic needed
+**Core technologies (unchanged from v2.0):**
+- **PyTorch (existing):** All new features use nn.Conv2d, nn.Linear, F.softmax, tensor ops -- fully MPS-compatible
+- **NumPy (existing):** Data pipeline and preprocessing -- no changes needed
+- **YAML config (existing):** Extended with new loss, model, and training parameters
 
-**Configuration change:**
-- Replace `use_cuda: bool` with `device: "auto"|"cuda"|"mps"|"cpu"` where auto-detection follows priority CUDA > MPS > CPU
-
-**Critical version requirement:**
-- PyTorch 2.3+ for `torch.amp.autocast(device_type='mps')` — this gates MPS AMP support
+**Explicitly deferred:**
+- Transformer architectures (overkill for 10-frame sequences)
+- torchmetrics (CSI/HSS are ~20 lines to implement)
+- Optuna/Ray Tune (defer hyperparameter search to v4.0)
+- torch.compile (poor MPS support, risk of subtle bugs)
 
 ### Expected Features
 
-Research identified 17 table-stakes features expected in production ML pipelines. The codebase has partial implementations for many but lacks critical production safeguards. Most concerning gaps: zero config validation (bad configs silently fail or train incorrectly), no checkpoint resume (can't recover from crashes), no NaN detection (training continues with NaN loss corrupting weights), and silent data loading failures (could train on 1 file out of 100).
+**Must have (table stakes -- fix broken dynamics):**
+- Temporal difference loss -- directly attacks the 0.056 variation ratio
+- Eliminate teacher forcing (tf=0) -- forces honest autoregressive predictions
+- Temporal weighting on later timesteps -- allocates gradient budget to harder predictions
+- Fix WeightedMAE with absolute threshold -- consistent extreme region penalty
+- CSI/HSS metrics + persistence baseline -- standard space weather evaluation
 
-**Must have (table stakes):**
-- **Config validation** — catches incompatible settings before expensive operations (e.g., dual_channel + wrong input_channels, AMP on CPU)
-- **Device auto-detection** — CUDA > MPS > CPU priority with explicit config override
-- **NaN/Inf detection** — check loss before backward, check gradients before optimizer.step()
-- **Atomic checkpoint writes** — write-to-temp-then-rename prevents corrupted checkpoints
-- **Checkpoint resume** — restore model + optimizer + scheduler + epoch + best_loss + patience_counter + history
-- **Data loading failure threshold** — error if X% of files fail to load (currently catches all exceptions silently)
-- **Basic test suite** — shape tests, loss function correctness, checkpoint roundtrip
+**Should have (differentiators -- improve prediction quality):**
+- Spatial attention gate -- learned focus on active regions via skip connections
+- Temporal attention over encoder -- weight input frames by relevance
+- Asymmetric loss for underestimation penalty -- operationally correct bias
+- Wider channels [32,64,128] + kernel size 5 -- more capacity and spatial context
+- Class-imbalanced sampling -- rebalances flare vs quiet-sun exposure
+- MC Dropout (0.15) + cosine LR scheduler -- regularization and convergence
 
-**Should have (hardening):**
-- **MPS op alternatives** — `torch.quantile` fallback, grouped conv validation, contiguity guarantees
-- **Normalization params in checkpoint** — embed preprocessing metadata, not separate metadata.json
-- **Welford's uncertainty** — O(1) memory instead of O(N) for MC Dropout predictions
-- **Epoch-boundary cache cleanup** — device-aware: `torch.cuda.empty_cache()` vs `torch.mps.empty_cache()`
-- **pin_memory device awareness** — only enable for CUDA (wastes memory on MPS/CPU)
-- **Memory-mapped data loading** — lazy loading for large datasets without RAM bottleneck
-- **Graceful interrupt handling** — save checkpoint on Ctrl+C
-
-**Nice-to-have (polish):**
-- **Full reproducibility** — torch/numpy/python seeds + deterministic mode + RNG state in checkpoint
-- **Gradient health monitoring** — log gradient norms, detect vanishing/exploding
-- **Per-epoch memory profiling** — track peak memory per device type
-
-**Defer to v2+ (anti-features for stabilization):**
-- Multi-GPU / DistributedDataParallel (massive complexity)
-- Hyperparameter tuning frameworks (adds dependencies)
-- TensorBoard / W&B integration (not needed for stabilization)
-- torch.compile (poor MPS support, can introduce subtle bugs)
-- Model architecture changes (stabilization means model stays identical)
-- Data format migration to HDF5/Zarr (np.load mmap is sufficient)
+**Defer to v4.0+:**
+- Progressive temporal curriculum (t_out 1->2->4) -- try simpler temporal fixes first
+- Temporal difference input channels -- let attention learn what matters
+- Multi-scale decoder -- high complexity, uncertain benefit over attention
 
 ### Architecture Approach
 
-The codebase has clean separation of concerns with no architectural debt. All changes fit within existing module boundaries — no new modules needed. The pipeline follows standard PyTorch patterns: config -> data loading -> model creation -> training loop -> evaluation. Components communicate through well-defined interfaces (device detection returns torch.device, Dataset.__getitem__ returns tensors, trainer functions take model/optimizer/data).
+The v3.0 architecture extends the existing ConvLSTM encoder-decoder with two attention mechanisms and a normalized delta head. The data flow changes from a simple encode-decode-skip pipeline to one where temporal attention weights encoder outputs before the decoder, spatial attention gates filter skip connections, and a learned scale parameter normalizes the delta output. All changes are additive -- no existing modules are removed or restructured.
 
-**Major components and changes:**
-1. **utils/device.py** — Extend with MPS detection, unify AMP context and scaler logic (LOW risk)
-2. **solarflare_data/dataset.py + loader.py** — Replace eager loading with lazy mmap-based loading (MEDIUM risk — changes data pipeline internals)
-3. **training/trainer.py** — Extend checkpoint save/load with additional state fields (LOW risk — backward compatible with existing checkpoints)
-4. **main.py** — Add config validation at entry point before pipeline runs (LOW risk)
-5. **models/uncertainty.py** — Replace stacking algorithm with Welford's online algorithm (LOW risk — same function signature)
-6. **inference.py** — Fix hardcoded device strings to use device.py (LOW risk)
-7. **config.yaml** — Extend schema with device field and resume_from field (LOW risk)
-
-**Key architectural decisions:**
-- **Unified device management**: Single module (device.py) handles detection, AMP context, scaler creation — all other modules consume its outputs
-- **Lazy loading pattern**: loader.py passes file paths to Dataset instead of loaded arrays; Dataset.__getitem__ opens mmap handles per-access
-- **Extended checkpoint format**: Backward-compatible dict extension with new optional fields for resume capability
-- **Entry-point validation**: Validate all config at main.py entry, not distributed across modules
+**Major components modified/added:**
+1. **CompositeLoss (training/losses.py)** -- Extended with temporal difference, temporal weighting, temporal variation penalty, and asymmetric extreme terms
+2. **SpatialAttentionGate (models/predictor.py)** -- Conv2d + Sigmoid applied before each skip connection to learn active-region focus
+3. **TemporalAttention (models/predictor.py)** -- Linear + Softmax over encoder hidden states to weight input frame relevance
+4. **Evaluation pipeline (utils/metrics.py + trainer.py)** -- CSI, HSS, persistence baseline, peak flux error, temporal variation ratio wired into validation loop
+5. **Data pipeline (solarflare_data/loader.py)** -- WeightedRandomSampler for class-imbalanced training
 
 ### Critical Pitfalls
 
-Research identified 15 pitfalls, 5 critical. Most dangerous: MPS AMP/GradScaler incompatibility (NaN in first 10 batches), memory-mapped arrays + DataLoader workers causing silent corruption on macOS, and checkpoint resume not restoring scheduler (LR jumps from 1e-5 back to 1e-3 destabilizing training).
+1. **Loss balancing trap** -- 6-7 loss terms will compete for gradient budget. One term (likely L1 on quiet regions) dominates, others ignored. **Avoid by:** logging each component separately, starting with conservative weights, ensuring temporal and extreme terms match L1 magnitude.
 
-1. **MPS AMP/GradScaler incompatibility** — GradScaler is CUDA-only; enabling on MPS errors or produces wrong gradients. Prevention: Route MPS through existing `_DummyGradScaler`, disable AMP unless bfloat16 confirmed. Detection: NaN in loss within first 5-10 batches on MPS with AMP.
+2. **Overfitting with 4x model size** -- Going from ~150K to ~600K+ params on 568 samples pushes params-to-sample ratio from 260 to 1050. **Avoid by:** MC Dropout (0.15), balanced augmentation (3x effective dataset), monitoring train-val gap, fallback to [24,48,96] channels.
 
-2. **SSIM grouped convolution may fail on MPS** — `losses.py:54` uses depthwise convolution pattern (`groups=pred.size(1)`). MPS Metal shaders have had correctness bugs with grouped conv. Prevention: Test `ssim(x, x) == 1.0` on MPS; provide loop-over-channels fallback if broken.
+3. **Temporal variation penalty instability** -- Negative loss term rewards predicting change; if lambda too high, model produces noisy predictions. **Avoid by:** starting lambda=0.05 (max 0.3), monitoring SSIM alongside variation ratio.
 
-3. **DummyGradScaler has no NaN guard** — CUDA GradScaler auto-skips optimizer.step() on NaN gradients; `_DummyGradScaler` doesn't. On MPS/CPU, NaN propagates into weights. Prevention: Add NaN-gradient check to DummyGradScaler.step() or explicit check after scaler.unscale_().
+4. **Asymmetric loss breaks gradient balance** -- Overestimation bias if alpha too aggressive. **Avoid by:** applying only above extreme threshold, starting alpha=1.5, monitoring FP rate alongside FN.
 
-4. **Memory-mapped arrays + DataLoader workers = corruption** — `np.load(mmap_mode='r')` with `num_workers > 0`: forked workers share file descriptors. On macOS, this causes silent data corruption or segfaults. Prevention: Open mmap inside each worker's `__getitem__`, not at Dataset construction. Detection: Compare batch statistics (mean/std) between num_workers=0 and num_workers=2.
-
-5. **Checkpoint resume doesn't restore scheduler state** — `load_checkpoint` (trainer.py:311) restores model and optimizer but NOT scheduler. CosineAnnealingLR resets, LR jumps from 1e-5 back to 1e-3, destabilizing training. Prevention: Save and restore scheduler state dict, verify LR after resume matches pre-crash value.
-
-**Additional moderate pitfalls:**
-- Optimizer state device mismatch on cross-device resume (CUDA checkpoint -> MPS loads model but optimizer tensors crash at first step)
-- `torch.quantile` not implemented on MPS (uncertainty.py:129 needs CPU fallback or torch.sort alternative)
-- Lazy loading breaks normalization stats computation (must compute in preprocessing, save to metadata)
-- `pin_memory=True` hardcoded for all devices (wastes memory on MPS/CPU)
-- Non-contiguous tensors on MPS (permute/reshape chains need `.contiguous()` before convolutions)
+5. **Spatial attention dead zones** -- Attention learns to mask 80%+ quiet-sun pixels, zeroing skip connections. **Avoid by:** initializing gate bias to ~2.0 (sigmoid(2.0) = 0.88 = pass-most-through default).
 
 ## Implications for Roadmap
 
-Based on dependency analysis and risk assessment, suggested phase structure follows a layered approach: foundations first (device detection + validation), then independent improvements (data loading, checkpoint resume), then polish (memory optimization, tests). This ordering unblocks Apple Silicon testing early, catches errors before expensive operations, and isolates risky changes (data loading) from stable changes (config validation).
+Based on research, suggested phase structure (continuing from v2.0's 6 phases):
 
-### Phase 1: Cross-Platform Device Support
-**Rationale:** Unblocks Apple Silicon testing and gates all other MPS work. Device detection is a prerequisite for device-specific code paths (cache cleanup, pin_memory, AMP handling). Low-risk changes to single module (device.py) plus config schema update.
+### Phase 7: Evaluation Metrics & Persistence Baseline
+**Rationale:** You cannot improve what you cannot measure. Every subsequent phase depends on proper evaluation to validate its impact. This phase has zero risk and unblocks all others.
+**Delivers:** CSI, HSS, persistence baseline, peak flux error, temporal variation ratio -- all wired into the training/validation loop with per-timestep logging.
+**Addresses:** All evaluation metrics from FEATURES.md table stakes.
+**Avoids:** No pitfall risk -- this is pure measurement infrastructure.
 
-**Delivers:**
-- Auto-detection with priority CUDA > MPS > CPU
-- Device-aware AMP context and scaler creation
-- MPS routed through existing DummyGradScaler
-- Config changes: `use_cuda: bool` -> `device: auto|cuda|mps|cpu`
-- Fixes inference.py hardcoded device strings
+### Phase 8: Loss Function Overhaul
+**Rationale:** The loss function is the primary lever for fixing temporal dynamics (the core v3.0 objective). Architecture changes without loss fixes produce larger models with the same broken behavior. This must precede architecture scaling.
+**Delivers:** Temporal difference loss, temporal weighting, temporal variation penalty, fixed WeightedMAE with absolute threshold, asymmetric extreme penalty. Per-component loss logging for all terms.
+**Addresses:** Temporal dynamics features (top 3 priority) and extreme region focus from FEATURES.md.
+**Avoids:** Pitfalls 1, 3, 4 -- loss balancing, variation instability, asymmetric gradient imbalance. Each new term needs per-component logging and conservative initial weights.
 
-**Addresses features:**
-- Device auto-detection (table stakes)
-- Device-aware AMP handling (table stakes)
+### Phase 9: Training Policy Changes
+**Rationale:** With proper loss functions in place, training policy adjustments amplify their effect. Cosine LR improves convergence, class-imbalanced sampling ensures the model actually sees flare sequences, and eliminating teacher forcing is necessary before architecture changes.
+**Delivers:** Cosine LR scheduler (with warmup), balanced augmentation, tf=0, WeightedRandomSampler for flare oversampling.
+**Addresses:** Training policy features from FEATURES.md differentiators.
+**Avoids:** Pitfalls 5, 8 -- sampler + batch_size=1 overfitting (use moderate 3x factor), cosine LR instability (add warmup).
 
-**Avoids pitfalls:**
-- Pitfall #1: MPS AMP/GradScaler incompatibility
-- Pitfall #13: Device-specific memory cleanup
+### Phase 10: Architecture Scaling
+**Rationale:** Only after loss and training are stable should architecture capacity increase. Wider channels, attention mechanisms, and delta head normalization add representational power that the improved loss function can now exploit. Doing this first would be wasted computation.
+**Delivers:** Spatial attention gates, temporal attention, wider channels [32,64,128], kernel size 5, delta head scale parameter, MC Dropout.
+**Addresses:** Architecture scaling features from FEATURES.md differentiators.
+**Avoids:** Pitfalls 2, 6, 7, 9, 10, 11 -- overfitting (dropout + augmentation), attention dead zones (bias init), temporal attention collapse (temperature scaling), delta scale explosion (soft clamping), checkpoint incompatibility (strict=False or fresh start).
 
-**Research flag:** SKIP — standard pattern, well-documented in PyTorch docs.
-
-### Phase 2: Configuration Validation & Error Handling
-**Rationale:** Catch errors early before expensive operations (data loading, model instantiation). Config validation is independent of device detection but benefits from knowing device type for cross-field checks (AMP + device, dual_channel + input_channels). Adds critical production safeguards with minimal code change.
-
-**Delivers:**
-- Config validation function with explicit checks
-- Required field validation (data_dir, input_channels)
-- Cross-field validation (dual_channel + input_channels, AMP + device type)
-- NaN/Inf detection in training loop (before backward, after unscale_)
-- Data loading failure threshold (error if >X% files fail)
-- Atomic checkpoint writes (write-to-temp-then-rename)
-
-**Addresses features:**
-- Config validation (table stakes)
-- NaN/Inf detection (table stakes)
-- Data loading failure threshold (table stakes)
-- Atomic checkpoint writes (table stakes)
-
-**Avoids pitfalls:**
-- Pitfall #3: DummyGradScaler has no NaN guard
-- Pitfall #12: Late NaN detection (after backward too late)
-- Improved error messages reduce debugging time
-
-**Research flag:** SKIP — validation patterns are straightforward, no external research needed.
-
-### Phase 3: Memory-Mapped Data Loading
-**Rationale:** Isolated change to data pipeline that doesn't affect training loop or model. Can develop and test independently. Addresses memory bottleneck for large datasets without changing data format. Medium risk due to mmap + DataLoader worker interaction on macOS.
-
-**Delivers:**
-- Lazy loading via `np.load(mmap_mode='r')` in Dataset.__getitem__
-- Worker-safe mmap handling (open per-access, not at construction)
-- Device-aware pin_memory (CUDA-only)
-- Pre-computed normalization stats (preprocessing step)
-- Reproducible augmentation (worker_init_fn for numpy seeding)
-
-**Addresses features:**
-- Memory-mapped data loading (should-have)
-- pin_memory device awareness (should-have)
-- Reproducible data splits (nice-to-have)
-
-**Avoids pitfalls:**
-- Pitfall #4: mmap + DataLoader workers corruption
-- Pitfall #8: Lazy loading breaks normalization stats
-- Pitfall #9: pin_memory on non-CUDA devices
-- Pitfall #11: np.random not fork-safe
-
-**Research flag:** NEEDS RESEARCH for "Safe mmap + DataLoader multiprocessing patterns on macOS" — this is a sharp edge that needs validation.
-
-### Phase 4: Checkpoint Resume
-**Rationale:** Depends on atomic checkpoint writes from Phase 2. Requires stable training loop (no NaN crashes that would test resume incorrectly). Extends existing checkpoint save/load with additional state fields.
-
-**Delivers:**
-- Extended checkpoint format (backward-compatible)
-- Save: epoch, model, optimizer, scheduler, scaler, best_val_loss, patience_counter, history, norm_params, rng_state
-- Resume path in train_model() with epoch continuation
-- Cross-device resume (manual optimizer state remapping to target device)
-- Config field: resume_from (path to checkpoint)
-
-**Addresses features:**
-- Checkpoint resume (table stakes)
-- Normalization params in checkpoint (should-have)
-- Full reproducibility (nice-to-have — RNG state)
-
-**Avoids pitfalls:**
-- Pitfall #5: Scheduler not restored
-- Pitfall #6: Optimizer state device mismatch on cross-device resume
-
-**Research flag:** SKIP — standard PyTorch checkpoint patterns, well-documented.
-
-### Phase 5: MPS Operation Compatibility
-**Rationale:** Requires Phase 1 (device detection) complete. This phase addresses MPS-specific edge cases discovered in op audit. Includes runtime verification tests that compare MPS vs CPU outputs.
-
-**Delivers:**
-- `torch.quantile` alternative for uncertainty.py (CPU fallback or torch.sort)
-- SSIM grouped convolution validation test (ssim(x,x) == 1.0)
-- Contiguity guarantees (add .contiguous() after permute/reshape before conv)
-- MPS vs CPU correctness tests (element-wise comparison)
-- Fallback mechanism for broken ops (graceful degradation to CPU)
-
-**Addresses features:**
-- MPS op alternatives (should-have)
-- Device compatibility smoke tests (table stakes from test coverage)
-
-**Avoids pitfalls:**
-- Pitfall #2: SSIM grouped conv may fail on MPS
-- Pitfall #7: torch.quantile not implemented on MPS
-- Pitfall #10: Non-contiguous tensors on MPS
-- Pitfall #15: F.interpolate spatial alignment bugs
-
-**Research flag:** NEEDS RESEARCH for "MPS Metal shader correctness verification" and "MPS-safe alternatives for unsupported ops" — this is hardware-specific and needs runtime validation on target Mac.
-
-### Phase 6: Memory Optimization & Polish
-**Rationale:** Independent improvements that don't affect correctness. Can be developed in parallel after Phases 1-4 are stable. Low risk, high value for production deployments.
-
-**Delivers:**
-- Welford's algorithm for uncertainty (O(1) memory instead of O(N))
-- Epoch-boundary cache cleanup (device-aware)
-- Gradient health monitoring (log norms, detect vanishing/exploding)
-- Graceful interrupt handling (save checkpoint on SIGINT)
-- Per-epoch memory profiling (log peak memory per device)
-
-**Addresses features:**
-- Welford's uncertainty (should-have)
-- Epoch-boundary cache cleanup (should-have)
-- Gradient health monitoring (nice-to-have)
-- Graceful interrupt handling (should-have)
-- Per-epoch memory profiling (nice-to-have)
-
-**Avoids pitfalls:**
-- Memory accumulation over long training runs
-- Silent gradient issues (vanishing/exploding)
-
-**Research flag:** SKIP — all standard patterns, no novel research needed.
-
-### Phase 7: Test Coverage
-**Rationale:** Tests validate all previous phases. Should be written incrementally during each phase, but a final sweep ensures comprehensive coverage. Tests are the contract that stabilization is complete.
-
-**Delivers:**
-- Model forward pass shape tests (various input shapes, batch sizes)
-- Loss function unit tests (SSIM correctness, composite loss components)
-- Checkpoint save/load roundtrip tests (all state preserved)
-- Data pipeline integration tests (mmap correctness, worker safety)
-- Device compatibility smoke tests (forward pass on CUDA/MPS/CPU produces same output)
-- Config validation tests (all validation rules covered)
-- NaN detection tests (loss NaN, gradient NaN, optimizer.step() skipped)
-
-**Addresses features:**
-- Test coverage (table stakes)
-
-**Validates:**
-- All pitfall mitigations are effective
-- Cross-platform compatibility is real, not aspirational
-
-**Research flag:** SKIP — testing patterns are standard, pytest documentation is sufficient.
+### Phase 11: Integration Testing & Validation
+**Rationale:** Full end-to-end validation against v2.0 baseline. All changes interact in ways that cannot be predicted from per-phase testing alone. This phase exists to catch emergent issues.
+**Delivers:** Full training run with all v3.0 features, diagnostic comparison against v2.0, performance report.
+**Addresses:** Final validation of all features.
+**Avoids:** Compound pitfalls from interaction of all changes.
 
 ### Phase Ordering Rationale
 
-**Layer 0 (Phases 1-2): Foundations**
-- Device detection and config validation have no dependencies and unblock all subsequent work
-- Device detection gates MPS-specific code paths (Phase 5)
-- Config validation catches errors before expensive operations (all phases benefit)
-- Low risk, high impact — stabilize the foundation first
-
-**Layer 1 (Phases 3-4): Core Improvements**
-- Data loading (Phase 3) and checkpoint resume (Phase 4) are independent and can be parallel
-- Both are medium complexity, benefit from stable foundation
-- Checkpoint resume depends on atomic writes from Phase 2
-
-**Layer 2 (Phases 5-6): Platform-Specific & Optimization**
-- MPS compatibility (Phase 5) depends on device detection from Phase 1
-- Memory optimization (Phase 6) is independent, low risk
-- Both can be parallel
-
-**Layer 3 (Phase 7): Validation**
-- Tests written incrementally but validated comprehensively at end
-- Final gate before declaring stabilization complete
-
-**Critical path:** Phase 1 -> Phase 5 (device detection gates MPS work)
-**Parallel opportunities:** Phases 3 & 4 (data loading + checkpoint resume), Phases 5 & 6 (MPS compatibility + memory optimization)
+- **Metrics first (Phase 7)** because every subsequent change needs measurement infrastructure. Without CSI/HSS and persistence baseline, there is no way to know if Phases 8-10 actually improved anything.
+- **Loss before architecture (Phase 8 before 10)** because the diagnostic clearly shows the model's dynamics are broken at the optimization level. A bigger model optimizing the wrong objective produces the same bad predictions faster.
+- **Training policy between loss and architecture (Phase 9)** because cosine LR and class-imbalanced sampling interact directly with the new loss terms and should be stable before adding model complexity.
+- **Architecture last (Phase 10)** because capacity increase is only useful when the optimization target (loss) and training regime are correct. This also isolates overfitting risk to one phase.
 
 ### Research Flags
 
-**Phases needing deeper research during planning:**
-- **Phase 3 (Data Loading):** "Safe mmap + DataLoader multiprocessing on macOS" — forked workers + file descriptors is a sharp edge, needs validation of worker-local mmap open pattern
-- **Phase 5 (MPS Compatibility):** "MPS Metal shader correctness" and "MPS-safe op alternatives" — hardware-specific, needs runtime verification on target Mac (exact PyTorch version, exact macOS version)
+Phases likely needing deeper research during planning:
+- **Phase 8 (Loss Overhaul):** Multi-term loss balancing is empirical. Plan for iterative weight tuning with diagnostic runs between adjustments. The interaction between temporal difference loss and temporal variation penalty is the key unknown.
+- **Phase 10 (Architecture Scaling):** Spatial and temporal attention behavior on solar flux data is novel. Attention weight distributions should be monitored. Dead zone and collapse risks need active prevention.
 
-**Phases with standard patterns (skip research-phase):**
-- **Phase 1 (Device Detection):** PyTorch device management is well-documented
-- **Phase 2 (Config Validation):** Standard validation patterns, no novel research needed
-- **Phase 4 (Checkpoint Resume):** Standard PyTorch checkpoint patterns
-- **Phase 6 (Memory Optimization):** Welford's algorithm is textbook, cache cleanup is PyTorch API
-- **Phase 7 (Test Coverage):** pytest patterns are standard
+Phases with standard patterns (skip research-phase):
+- **Phase 7 (Metrics):** CSI, HSS, persistence baseline are textbook implementations. No research needed.
+- **Phase 9 (Training Policy):** Cosine LR, WeightedRandomSampler, augmentation are standard PyTorch patterns.
+- **Phase 11 (Integration):** Validation protocol is domain-specific but straightforward.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | No new dependencies needed; all capabilities are PyTorch/NumPy built-ins. PyTorch version requirement (2.3+) needs verification on target Mac. |
-| Features | HIGH | Feature landscape based on codebase audit + production ML pipeline standards. Prioritization is opinionated but defensible. |
-| Architecture | HIGH | Codebase structure is clean, changes fit existing boundaries. Dependency analysis is based on actual code inspection. |
-| Pitfalls | MEDIUM | Codebase-specific pitfalls are HIGH confidence (directly observed). MPS-specific pitfalls are MEDIUM (need runtime verification on target hardware). |
+| Stack | HIGH | All features use PyTorch built-ins; no new dependencies; MPS compatibility verified |
+| Features | HIGH | Priorities derived from diagnostic evidence (variation ratio 0.056, CSI 0.05) |
+| Architecture | HIGH | Based on direct codebase inspection; integration points clearly identified |
+| Pitfalls | HIGH | Grounded in diagnostic data and known ML failure modes; mitigations are concrete |
 
-**Overall confidence:** HIGH for codebase analysis and phase planning, MEDIUM for MPS runtime behavior.
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-**MPS runtime verification needed:**
-- Exact PyTorch version on target Mac (gates MPS autocast support)
-- `torch.outer` support on MPS (used in SSIM Gaussian kernel)
-- Grouped convolution correctness on MPS (critical for SSIM loss)
-- F.interpolate spatial alignment on MPS (used in predictor upsampling)
-
-**Validation during Phase 5:**
-- Run MPS vs CPU element-wise output comparison on actual hardware
-- Test SSIM loss: `ssim(x, x)` must return exactly 1.0 on MPS
-- Test uncertainty quantiles with CPU fallback
-- Measure MPS performance vs CPU (if MPS is slower, document trade-offs)
-
-**Data format assumption:**
-- Research assumes preprocessed data is multiple .npy files (as seen in loader.py)
-- If data format changes, mmap strategy may need adjustment
-
-**Resolution strategy:**
-- Phase 1 can proceed immediately (device detection is PyTorch API)
-- Phase 5 requires access to target Mac for verification
-- If MPS verification reveals blockers: graceful fallback to CPU is acceptable (still better than current state where Mac users get CPU silently)
+- **Optimal loss term weights:** The relative weights between temporal_diff, temporal_var, asymmetric_alpha, and extreme_weight are unknown. Must be determined empirically during Phase 8 through iterative diagnostic runs. Start with conservative values documented in PITFALLS.md.
+- **Attention memory cost at scale:** Spatial attention is negligible, but temporal attention over 10 frames with [32,64,128] channels has not been profiled. Should be fine with batch_size=1 but verify during Phase 10.
+- **Training time impact:** Kernel size 5 + wider channels estimated at ~2-3x slower per epoch. Acceptable if metrics improve, but should be measured early in Phase 10.
+- **Intermediate channel scaling:** If [32,64,128] overfits, [24,48,96] is the fallback. Decision point is during Phase 10 based on train-val gap.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- **Codebase inspection:** All research based on direct analysis of SolarFlare codebase (commit 0585351)
-- **PyTorch documentation:** Device management, AMP API, checkpoint format (official docs, version 2.2+)
-- **NumPy documentation:** Memory-mapped file I/O (official docs)
+- Direct codebase inspection of models/predictor.py, training/losses.py, training/trainer.py, utils/metrics.py, solarflare_data/dataset.py, solarflare_data/loader.py
+- Diagnostic run output (2026-03-07) -- temporal variation ratio, CSI, persistence skill metrics
+- PyTorch documentation for nn.Conv2d, nn.Linear, F.softmax, WeightedRandomSampler, CosineAnnealingLR
 
 ### Secondary (MEDIUM confidence)
-- **PyTorch MPS backend limitations:** Known unsupported operations (community reports, GitHub issues)
-- **Production ML pipeline standards:** Common patterns for error handling, validation, checkpoint resume (industry practice)
+- Attention U-Net pattern (spatial attention gates) -- well-established in medical imaging, adapted for solar flux
+- ConvLSTM temporal attention -- standard pattern in video prediction literature
 
-### Tertiary (LOW confidence, needs validation)
-- **MPS Metal shader correctness:** Grouped convolution bugs reported in PyTorch 2.0-2.2 (may be fixed in 2.3+, needs runtime verification)
-- **macOS fork + mmap behavior:** Forked workers sharing file descriptors (needs testing on target macOS version)
+### Tertiary (LOW confidence)
+- Optimal loss weight ranges (temporal_diff_weight=1.0, temporal_var_weight=0.05-0.3, asymmetric_alpha=1.5-2.0) -- educated estimates, need empirical validation
 
 ---
-*Research completed: 2026-02-02*
-*Ready for roadmap: YES*
+*Research completed: 2026-03-07*
+*Ready for roadmap: yes*

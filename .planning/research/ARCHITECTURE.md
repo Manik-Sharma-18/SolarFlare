@@ -1,170 +1,154 @@
-# Architecture Patterns
+# Architecture Integration: v3.0 Temporal Dynamics & Flare Detection
 
-**Project:** SolarFlare — PyTorch ConvLSTM Solar Flux Predictor
-**Researched:** 2026-02-02
-**Focus:** Stabilization and cross-platform support for existing codebase
-**Confidence:** HIGH
+**Project:** SolarFlare v3.0
+**Researched:** 2026-03-07
+**Confidence:** HIGH (based on direct codebase inspection)
 
 ## Current Architecture
 
 ```
-main.py                          # Orchestrator: config -> data -> model -> train -> eval
-  ├── config.yaml                # All configuration (flat YAML, no validation)
-  ├── utils/device.py            # Device selection (CUDA-only + CPU fallback)
-  ├── solarflare_data/
-  │     loader.py                # Data loading, normalization, splitting
-  │     dataset.py               # SolarFluxDataset (eager, holds all cubes in RAM)
-  ├── models/
-  │     predictor.py             # SolarFluxPredictor (encoder-decoder ConvLSTM)
-  │     convlstm.py              # ConvLSTM cell and layer
-  │     uncertainty.py           # MC Dropout uncertainty (predict_with_uncertainty)
-  ├── training/
-  │     trainer.py               # train_epoch, validate, train_model, load_checkpoint
-  │     losses.py                # CompositeLoss, SSIM, WeightedMAE
-  ├── utils/
-  │     metrics.py               # MAE, RMSE, correlation
-  │     visualization.py         # Plotting utilities
-  │     animation.py             # Animation utilities
-  └── inference.py               # Standalone inference (hardcoded device string)
+models/predictor.py      SolarFluxPredictor
+  Encoder: 2x ConvLSTM [16, 32] + 2x downsample
+  Latent:  1x ConvLSTM [64]
+  Decoder: mirror encoder with skip connections (line 263)
+  Output:  Conv2d -> delta, pred = input + delta (line 269)
+
+training/losses.py       CompositeLoss (L1 + SSIM + WeightedMAE)
+training/trainer.py      Training loop with validation
+solarflare_data/
+  dataset.py             SolarFluxDataset (mmap, sliding windows)
+  loader.py              Data loading, splits, normalization
+utils/metrics.py         compute_metrics (not wired into training)
 ```
 
-## Component Change Map
+## Integration Map
 
-| Component | Change Type | Scope | Risk |
-|-----------|------------|-------|------|
-| `utils/device.py` | **Extend** | Add MPS detection, unify AMP/scaler logic | Low |
-| `solarflare_data/dataset.py` | **Replace internals** | Lazy loading via mmap in `__getitem__` | Medium |
-| `solarflare_data/loader.py` | **Modify** | Pass file paths to dataset instead of loaded arrays | Medium |
-| `training/trainer.py` | **Extend** | Add checkpoint resume, save more state | Low |
-| `main.py` | **Extend** | Add config validation before pipeline runs | Low |
-| `models/uncertainty.py` | **Replace algorithm** | Welford's online algorithm instead of stacking | Low |
-| `inference.py` | **Fix** | Use device.py instead of hardcoded strings | Low |
-| `config.yaml` | **Extend** | Add device: auto, resume_from field | Low |
+### 1. Loss Function Changes (training/losses.py)
 
-No new modules needed. All changes fit within existing boundaries.
+**Modified: CompositeLoss.forward()**
+- Add temporal difference loss term: `L1(pred[t+1]-pred[t], target[t+1]-target[t])`
+- Add temporal weighting: multiply per-timestep losses by `[1.0, 1.5, 2.0, 2.5]`
+- Add temporal variation penalty: `-lambda * mean(|pred[t+1]-pred[t]|)`
+- Accept new config weights: `temporal_diff_weight`, `timestep_weights`, `temporal_var_weight`
 
-## Pattern 1: Unified Device Management
+**Modified: WeightedMAELoss.forward()**
+- Replace relative normalization (`max_target` per sample) with absolute threshold
+- Use pre-computed extreme threshold from norm_params (~30,019 raw)
+- Add asymmetric penalty: `alpha * max(0, target-pred)` for underestimation
 
-```
-utils/device.py
-  get_device(config)          -> torch.device  (CUDA > MPS > CPU)
-  get_amp_context(use_amp, device) -> context manager
-  get_grad_scaler(use_amp, device) -> GradScaler or _DummyGradScaler
-```
+**New: get_loss_function() updates**
+- Pass new config fields through to CompositeLoss constructor
 
-Key decisions:
-- Config changes from `use_cuda: bool` to `device: auto|cuda|mps|cpu`
-- MPS uses DummyGradScaler (existing pattern handles this)
-- MPS autocast via `torch.amp.autocast(device_type='mps')`
-- Device-aware cache cleanup: `torch.cuda.empty_cache()` vs `torch.mps.empty_cache()`
+### 2. Model Architecture Changes (models/predictor.py)
 
-Propagation: device.py → main.py:40 → inference.py:171 → config.yaml
-
-## Pattern 2: Lazy Data Loading
-
-```
-Current:  loader.py loads all .npy → passes arrays to Dataset
-Proposed: loader.py finds files, computes norm params → passes paths to Dataset
-          Dataset.__getitem__: np.load(path, mmap_mode='r')[start:end]
-```
-
-Key decisions:
-- `np.load(path, mmap_mode='r')` — OS manages memory via virtual memory
-- Normalization must happen at preprocessing time, not load time
-- mmap works with num_workers > 0 IF each worker opens its own file descriptor
-- pin_memory conditional: `pin_memory = (device.type == 'cuda')`
-
-Propagation: dataset.py → loader.py only. No changes to trainer.py or main.py.
-
-## Pattern 3: Checkpoint Resume
-
-Extended checkpoint dict:
+**New module: SpatialAttentionGate**
 ```python
-{
-    'epoch': int,
-    'model_state_dict': ...,
-    'optimizer_state_dict': ...,
-    'scheduler_state_dict': ...,
-    'scaler_state_dict': ...,      # NEW
-    'best_val_loss': float,         # NEW
-    'patience_counter': int,        # NEW
-    'history': dict,                # NEW
-    'normalization_params': dict,   # NEW
-    'rng_state': {...},             # NEW
-    'config': dict
-}
+class SpatialAttentionGate(nn.Module):
+    # Conv2d(channels, 1, kernel_size=1) + Sigmoid
+    # Applied before skip connection at line 263
+    # attention = sigmoid(conv(encoder_features))
+    # skip = skip * attention
 ```
 
-Key decisions:
-- Save `latest_checkpoint.pt` every epoch + `best_model.pt` on improvement
-- Cross-device resume: manually move optimizer state tensors to target device
-- Teacher forcing schedule naturally correct from resumed epoch counter
-
-Propagation: trainer.py → config.yaml (add resume_from) → main.py
-
-## Pattern 4: Config Validation
-
-- Validate at entry (main.py), not in every module
-- Cross-field checks most valuable: dual_channel + input_channels, AMP + device type
-- Warn vs error: missing data dir = error, AMP on CPU = warning
-- Simple function with explicit checks, no external validation library
-
-## Pattern 5: Welford's Algorithm for Uncertainty
-
+**New module: TemporalAttention**
 ```python
-# O(1) memory instead of O(N)
-mean = torch.zeros_like(first_pred)
-M2 = torch.zeros_like(first_pred)
-for n in range(1, N+1):
-    pred = model(x)
-    delta = pred - mean
-    mean += delta / n
-    delta2 = pred - mean
-    M2 += delta * delta2
-variance = M2 / (N - 1)
-std = torch.sqrt(variance)
+class TemporalAttention(nn.Module):
+    # Linear projection of encoder hidden states
+    # Softmax attention weights over T_in timesteps
+    # Weighted sum of encoder outputs -> decoder init
 ```
 
-Same function signature — callers unaffected.
+**Modified: SolarFluxPredictor.__init__()**
+- Accept `use_spatial_attention`, `use_temporal_attention`, `delta_head_scale` config
+- Add SpatialAttentionGate instances (one per skip connection)
+- Add TemporalAttention module
+- Add learnable delta scale parameter (nn.Parameter)
 
-## Dependency Order for Implementation
+**Modified: SolarFluxPredictor.forward()**
+- Apply spatial attention before skip connections
+- Apply temporal attention to encoder outputs before decoder
+- Multiply delta by learned scale parameter
 
-### Layer 0: No Dependencies (Parallel)
-1. `utils/device.py` MPS support
-2. `models/uncertainty.py` Welford's
-3. Config validation function
+**Config-only changes:**
+- `channels: [32, 64, 128]` -- just constructor arg
+- `kernel_size: 5` -- just constructor arg
+- `dropout_rate: 0.15` -- existing support
 
-### Layer 1: Depends on Layer 0
-4. `config.yaml` schema update
-5. `main.py` wiring (validate_config, new config keys)
-6. `inference.py` device fix
+### 3. Evaluation Changes (utils/metrics.py + training/trainer.py)
 
-### Layer 2: Depends on Layer 1
-7. `solarflare_data/dataset.py` lazy loading
-8. `solarflare_data/loader.py` changes
+**New in utils/metrics.py:**
+- `compute_csi(pred, target, threshold)` -- Critical Success Index
+- `compute_hss(pred, target, threshold)` -- Heidke Skill Score
+- `compute_persistence_baseline(input_seq, target)` -- persistence MAE
+- `compute_peak_flux_error(pred, target)` -- peak flux comparison
+- `compute_temporal_variation(pred, target)` -- variation ratio
 
-### Layer 3: Depends on Layer 2
-9. `training/trainer.py` checkpoint resume
-10. Error handling in main.py (wraps final integrated pipeline)
+**Modified: training/trainer.py validate_epoch()**
+- Call all metrics during validation
+- Log per-timestep MAE, RMSE, correlation, CSI, HSS, persistence skill, SSIM
+- Return expanded metrics dict
 
-## Practical Phase Grouping
+### 4. Data Pipeline Changes (solarflare_data/)
 
-| Phase | Modules | Rationale |
-|-------|---------|-----------|
-| 1 | device.py, inference.py, config.yaml device section | Cross-platform device — unblocks Apple Silicon testing |
-| 2 | main.py validation, config schema | Catch errors early before expensive operations |
-| 3 | dataset.py, loader.py | Lazy loading — isolated data pipeline change |
-| 4 | trainer.py, checkpoint resume | Depends on stable training loop |
-| 5 | uncertainty.py (Welford's), memory cleanup | Independent improvements |
-| 6 | Tests for all modified modules | Validates everything |
+**Modified: loader.py**
+- Add `_tag_extreme_sequences()` -- scan each window for extreme pixels
+- Create `WeightedRandomSampler` with higher weights for flare-containing sequences
+- Pass sampler to DataLoader (replaces shuffle=True for train)
 
-## Integration Points
+**Modified: dataset.py**
+- No changes to __getitem__ -- sampling changes are at DataLoader level
 
-1. **main.py:40** — device.py change + config schema change both affect this
-2. **trainer.py:222** — device.py change affects scaler returned for MPS
-3. **loader.py:163-174** — lazy loading changes Dataset constructor signature
-4. **trainer.py:275-287** — resume adds fields; must be backward-compatible with existing checkpoints
-5. **config.yaml** — multiple phases modify; define target schema upfront
+### 5. Training Config Changes (config.yaml)
+
+All new loss, model, and training parameters added to config schema.
+Config validation in main.py extended for new fields.
+
+## Data Flow Changes
+
+```
+BEFORE (v2.0):
+  input(B,C,T_in,H,W) -> encoder -> latent -> decoder(+skip) -> delta -> pred
+
+AFTER (v3.0):
+  input(B,C,T_in,H,W) -> encoder -> [temporal_attention] -> latent
+    -> decoder(+[spatial_attention]*skip) -> delta*[learned_scale] -> pred
+
+  loss = L1 + SSIM + WeightedMAE(asymmetric) + temporal_diff + temporal_var
+         (all per-timestep weighted by [1.0, 1.5, 2.0, 2.5])
+```
+
+## Build Order (Dependency-Aware)
+
+```
+Phase 7: Evaluation metrics & persistence baseline
+  (independent, enables measuring all subsequent changes)
+
+Phase 8: Loss function overhaul
+  (temporal diff, temporal weighting, temporal var penalty, fix WeightedMAE, asymmetric)
+  Depends on: metrics to measure impact
+
+Phase 9: Training policy changes
+  (cosine LR, balanced aug, eliminate TF, class-imbalanced sampling)
+  Depends on: improved loss functions
+
+Phase 10: Architecture scaling
+  (spatial attention, temporal attention, wider channels, kernel 5, delta head, MC dropout)
+  Depends on: stable loss + training policy
+
+Phase 11: Integration testing & validation
+  (full training run, diagnostic comparison, checkpoint compat)
+  Depends on: all previous phases
+```
+
+*Note: Phase numbering continues from v2.0's 6 phases.*
+
+## Key Integration Risks
+
+1. **Temporal difference loss + temporal variation penalty** may conflict -- need careful weight tuning
+2. **Spatial attention + gradient checkpointing** -- attention gates add to computation graph; verify checkpointing still works
+3. **WeightedRandomSampler replaces shuffle=True** -- ensure reproducibility with seed
+4. **Wider channels [32,64,128] + batch_size=1** -- verify MPS memory fits (should be fine with downsampled input)
+5. **Multiple new loss terms** -- total loss magnitude changes; may need re-tuning LR
 
 ---
-*Architecture analysis: 2026-02-02*
+*Research completed: 2026-03-07*

@@ -1,82 +1,70 @@
-# Technology Stack Research: MPS Support & Cross-Platform GPU
+# Technology Stack Research: v3.0 Temporal Dynamics & Flare Detection
 
-**Project:** SolarFlare v2 — Stabilization & Cross-Platform
-**Researched:** 2026-02-02
-**Confidence:** MEDIUM (MPS specifics need runtime verification)
+**Project:** SolarFlare v3.0
+**Researched:** 2026-03-07
+**Confidence:** HIGH (all features use PyTorch built-ins)
 
-## MPS Op Compatibility Matrix
+## Stack Assessment
 
-All core ops in this codebase are MPS-compatible as of PyTorch >= 2.2:
+### No New Runtime Dependencies Required
 
-| Operation | Used In | MPS Support | Notes |
-|-----------|---------|-------------|-------|
-| Conv2d | convlstm.py, predictor.py | YES | Fully supported |
-| ConvTranspose2d | predictor.py | YES | Fully supported |
-| F.interpolate(mode='nearest') | predictor.py:263,276 | YES | Supported; verify spatial alignment |
-| F.avg_pool2d | losses.py (MS-SSIM) | YES | Supported |
-| F.conv2d (grouped) | losses.py:54 (SSIM kernel) | YES | Depthwise pattern — test correctness |
-| sigmoid, tanh | convlstm.py | YES | Element-wise ops fully supported |
-| torch.cat, torch.stack | Throughout | YES | Fully supported |
-| torch.quantile | uncertainty.py:129 | NO | Not implemented on MPS — needs alternative |
-| torch.outer | losses.py (Gaussian kernel) | LOW confidence | Use broadcast multiply as safer alternative |
+All v3.0 features are implementable with existing PyTorch + NumPy. No new packages needed.
 
-## Key Findings
+| Feature | Implementation | PyTorch Built-in? |
+|---------|---------------|-------------------|
+| Temporal difference loss | Custom loss term (L1 on consecutive frame diffs) | Yes - tensor ops |
+| Temporal weighting | Per-timestep weight vector in loss | Yes - tensor ops |
+| Asymmetric loss | Conditional penalty (torch.where) | Yes - tensor ops |
+| Spatial attention gate | Conv2d + Sigmoid (Attention U-Net pattern) | Yes - nn.Conv2d, nn.Sigmoid |
+| Temporal attention | Linear + Softmax over encoder outputs | Yes - nn.Linear, F.softmax |
+| CSI / HSS metrics | TP/FP/FN counting on binarized tensors | Yes - tensor comparisons |
+| Persistence baseline | Copy last input frame, compute MAE | Yes - tensor slicing |
+| WeightedRandomSampler | torch.utils.data.WeightedRandomSampler | Yes - built-in class |
+| Cosine LR scheduler | torch.optim.lr_scheduler.CosineAnnealingLR | Yes - built-in class |
+| MC Dropout | Already implemented (dropout_rate > 0) | Yes - existing code |
+| Progressive curriculum | Config-driven t_out changes + checkpoint resume | Yes - existing infra |
+| Delta head normalization | Learnable nn.Parameter scale factor | Yes - nn.Parameter |
 
-### AMP on MPS
-- `torch.amp.autocast(device_type='mps')` — YES (PyTorch 2.3+)
-- `GradScaler` — NO (CUDA-only, Apple GPUs handle float16 differently)
-- Existing `_DummyGradScaler` pattern already handles MPS correctly
-- Recommendation: Route MPS through DummyGradScaler, enable autocast conditionally
+### Config Changes Required
 
-### Device Configuration Change
-- Current: `use_cuda: bool` — forces Mac users to get CPU silently
-- Recommended: `device: "auto"|"cuda"|"mps"|"cpu"` with auto-detection priority CUDA > MPS > CPU
+```yaml
+# New fields for v3.0
+model:
+  channels: [32, 64, 128]        # Was [16, 32, 64]
+  kernel_size: 5                   # Was 3
+  dropout_rate: 0.15               # Was 0.0
+  use_spatial_attention: true      # New
+  use_temporal_attention: true     # New
+  delta_head_scale: true           # New
 
-### Checkpoint Resume Fields Needed
-Current checkpoint saves: epoch, model_state_dict, optimizer_state_dict, scheduler_state_dict, val_loss, config
+loss:
+  extreme_weight: 3.0              # Was 1.0
+  temporal_diff_weight: 1.0        # New
+  temporal_var_weight: 0.1         # New
+  asymmetric_alpha: 2.0            # New
+  timestep_weights: [1.0, 1.5, 2.0, 2.5]  # New
 
-Additional fields needed:
-- `best_val_loss` — for early stopping continuity
-- `patience_counter` — for early stopping continuity
-- `history` — accumulated training metrics
-- `scaler_state_dict` — if using real GradScaler (CUDA only)
-- `rng_state` — torch/numpy/python random states for reproducibility
-- `normalization_params` — embed in checkpoint, not just metadata.json
+training:
+  tf_start: 0.0                    # Was 0.5
+  scheduler:
+    type: "cosine"                 # Was "none"
 
-### Memory-Mapped Data Loading
-- `np.load(path, mmap_mode='r')` — zero new dependencies needed
-- Works with existing .npy format
-- OS manages memory paging automatically
-- Sliding window access pattern is mmap-friendly
-- CAVEAT: mmap + DataLoader num_workers > 0 requires worker-local file descriptor opens
+data:
+  augmentation: "balanced"         # Was "none"
+  oversample_extreme: true         # New
+  oversample_factor: 3             # New
+```
 
-### No New Runtime Dependencies
-- MPS detection: `torch.backends.mps` (bundled)
-- Memory mapping: `numpy.lib.format.open_memmap` (bundled)
-- Checkpoint resume: `torch.save/load` (bundled)
-- Only new dev dependency: pytest
+### MPS Compatibility Notes
 
-## MPS-Specific Alternatives Needed
+All new features use standard ops (Conv2d, Linear, element-wise) that are fully MPS-compatible. No new MPS edge cases introduced beyond what v2.0 already handles. Spatial attention uses standard Conv2d (not grouped), temporal attention uses Linear layers -- both safe on MPS.
 
-| Unsupported Op | Alternative | Location |
-|---------------|-------------|----------|
-| `torch.quantile` | `torch.sort` + index selection, or move to CPU for quantile computation | uncertainty.py:129 |
-| `torch.outer` (low confidence) | `g.unsqueeze(1) * g.unsqueeze(0)` broadcast multiply | losses.py SSIM kernel |
+### What NOT to Add
 
-## Recommendations
-
-1. **Device detection refactor comes first** — gates all other MPS work
-2. **AMP refactor is low-risk** — existing DummyGradScaler pattern handles MPS
-3. **Run MPS verification checklist on target Mac** before implementing MPS-specific code paths
-4. **Memory-mapped data loading is independent of MPS** — can be parallel
-5. **Checkpoint resume is independent of MPS** — can be parallel
-6. **Pin PyTorch version** after confirming MPS compatibility
-
-## Open Questions
-
-- Exact PyTorch version installed on target Mac
-- Whether preprocessed data format (multiple .npy files) needs multi-file mmap wrapper
-- Whether `torch.outer` works on MPS in installed PyTorch version
+- **Transformer architectures** -- Overkill for 10-frame sequences; ConvLSTM + attention is sufficient
+- **External metric libraries (torchmetrics)** -- CSI/HSS are simple enough to implement in ~20 lines
+- **Optuna/Ray Tune** -- Defer hyperparameter search to v4.0
+- **torch.compile** -- Still poor MPS support, risk of subtle bugs
 
 ---
-*Stack research: 2026-02-02*
+*Research completed: 2026-03-07*

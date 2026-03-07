@@ -1,188 +1,146 @@
-# Pitfalls: PyTorch MPS Support & Pipeline Stabilization
+# Pitfalls: v3.0 Temporal Dynamics & Flare Detection
 
-**Project:** SolarFlare v2 — Stabilization & Cross-Platform
-**Researched:** 2026-02-02
-**Confidence:** HIGH for codebase-specific issues, MEDIUM for MPS-specific (needs runtime verification)
+**Project:** SolarFlare v3.0
+**Researched:** 2026-03-07
+**Confidence:** HIGH (based on diagnostic evidence and codebase inspection)
 
 ## Critical Pitfalls
 
-### Pitfall 1: MPS AMP/GradScaler Incompatibility
+### Pitfall 1: Loss Balancing Trap (Multiple New Loss Terms)
 
-**What goes wrong:** Enabling AMP on MPS with CUDA's GradScaler errors or silently produces wrong gradients. GradScaler is CUDA-only.
-
-**Prevention:**
-- Route MPS through `_DummyGradScaler` (existing pattern)
-- Disable AMP on MPS unless bfloat16 confirmed on target hardware
-- Add explicit device-type branching in get_amp_context
-
-**Detection:** NaN in loss within first 5-10 batches on MPS with AMP enabled.
-
-**Phase:** MPS device support (first phase).
-
-**Codebase location:** `utils/device.py:26-38` — no MPS path exists.
-
-### Pitfall 2: SSIM Grouped Conv May Fail on MPS
-
-**What goes wrong:** `losses.py:54` uses `F.conv2d` with `groups=pred.size(1)` (depthwise pattern). MPS grouped convolution shaders have had correctness bugs.
+**What goes wrong:** Adding temporal_diff_weight, temporal_var_weight, asymmetric_alpha, and increased extreme_weight on top of existing L1+SSIM+WeightedMAE creates a 6-7 term composite loss. If weights aren't carefully balanced, one term dominates and others are ignored. Worse: the model may optimize the easiest term (L1 on quiet regions) and ignore the hard terms (temporal dynamics, extreme detection).
 
 **Prevention:**
-- Test: `ssim(x, x)` must return exactly 1.0 on MPS
-- If broken: provide loop-over-channels alternative for MPS
-- Consider making MS-SSIM optional per-device
+- Log each loss component separately during training (not just total)
+- Start with conservative weights, adjust based on component magnitudes
+- Ensure temporal_diff and extreme terms are same order of magnitude as L1
+- Monitor the ratio of each component to total loss per epoch
 
-**Detection:** `ssim(x, x) != 1.0` on MPS.
+**Phase:** Loss function overhaul (Phase 8)
 
-**Phase:** MPS support phase.
+### Pitfall 2: Overfitting with 4x Model Size on 568 Samples
 
-### Pitfall 3: DummyGradScaler Has No NaN Guard
-
-**What goes wrong:** CUDA's GradScaler auto-skips optimizer.step() on NaN gradients. `_DummyGradScaler` in `device.py:54-67` always calls `optimizer.step()`, propagating NaN into weights on MPS/CPU.
-
-**Prevention:**
-- Add NaN-gradient check to DummyGradScaler.step()
-- Or add explicit check after scaler.unscale_() in training loop
-- Guard checkpoint save: never save if loss is NaN
-
-**Phase:** Gradient handling phase.
-
-### Pitfall 4: Memory-Mapped Arrays + DataLoader Workers = Corruption
-
-**What goes wrong:** `np.load(file, mmap_mode='r')` with `num_workers > 0` — forked workers share file descriptors. On macOS (fork without exec), this causes silent data corruption or segfaults.
+**What goes wrong:** Going from [16,32,64] (~150K params) to [32,64,128] (~600K+ params) with only 568 training samples. Params-to-sample ratio goes from ~260 to ~1050. Model memorizes training data, val loss diverges.
 
 **Prevention:**
-- Open mmap inside each worker's `__getitem__`, not at Dataset construction
-- Or use `worker_init_fn` to re-open mmaps per worker
-- Test with num_workers=2 on macOS: compare batch stats vs num_workers=0
+- MC Dropout (0.15) provides regularization
+- Balanced augmentation gives effective 3x dataset (1704 samples)
+- Class-imbalanced sampling doesn't add data but rebalances exposure
+- Monitor train-val gap closely -- if >15%, reduce capacity
+- **Fallback:** If overfitting, try [24,48,96] as intermediate scaling
 
-**Detection:** Compare batch statistics (mean/std) between num_workers=0 and num_workers=2.
+**Detection:** Train loss continues decreasing while val loss increases for 3+ epochs.
 
-**Phase:** Data loading refactor phase.
+**Phase:** Architecture scaling (Phase 10)
 
-### Pitfall 5: Checkpoint Resume Doesn't Restore Scheduler State
+### Pitfall 3: Temporal Variation Penalty Instability
 
-**What goes wrong:** `load_checkpoint` (trainer.py:311) restores model and optimizer but NOT scheduler. CosineAnnealingLR resets, LR jumps from 1e-5 back to 1e-3, destabilizing training.
+**What goes wrong:** The temporal variation penalty `L_var = -lambda * mean(|pred[t+1]-pred[t]|)` is a *negative* loss -- it rewards the model for predicting change. If lambda is too large, the model learns to produce random large changes (noisy predictions) to minimize this penalty, destroying spatial coherence.
 
 **Prevention:**
-- Save and restore scheduler state dict
-- Verify LR after resume matches pre-crash value
-- Resume epoch counter from checkpoint, not from 0
-- Also save: best_val_loss, patience_counter, history
+- Start with lambda=0.05, max 0.3
+- Monitor spatial SSIM alongside temporal variation -- if SSIM drops sharply, lambda is too high
+- The temporal difference loss (positive term) should be the primary temporal signal; the variation penalty is a gentle nudge
 
-**Detection:** Print LR after resume — if it doesn't match pre-crash, scheduler restore is broken.
+**Phase:** Loss function overhaul (Phase 8)
 
-**Phase:** Checkpoint resume phase.
+### Pitfall 4: Asymmetric Loss Breaks Gradient Balance
 
-**Codebase location:** `trainer.py:202-219` creates scheduler fresh, `311-333` has no scheduler restore.
+**What goes wrong:** Asymmetric penalty `alpha * max(0, target-pred)` for underestimation means the model always has a bias toward overestimation. With alpha=3, the model may predict exaggerated flux everywhere to avoid the asymmetric penalty, increasing FP dramatically while reducing FN.
+
+**Prevention:**
+- Only apply asymmetric penalty above extreme threshold (not globally)
+- Start with alpha=1.5, not 3.0
+- Monitor FP rate alongside FN rate -- if FP explodes, alpha is too aggressive
+- CSI metric naturally balances TP/FP/FN -- watch it
+
+**Phase:** Loss function overhaul (Phase 8)
+
+### Pitfall 5: WeightedRandomSampler + batch_size=1 Interaction
+
+**What goes wrong:** With batch_size=1, each "batch" is one sample. WeightedRandomSampler oversamples flare sequences 3-5x. But with so few flare sequences in 568 samples, the model sees the same flare sequences many times per epoch, overfitting to those specific flare patterns.
+
+**Prevention:**
+- Use moderate oversampling factor (3x, not 5x)
+- Combined with balanced augmentation, each flare sequence appears in 3 orientations x 3 oversample = ~9x, which provides some variety
+- Track per-file performance to detect if model only learns flares in training files
+
+**Phase:** Training policy (Phase 9)
 
 ## Moderate Pitfalls
 
-### Pitfall 6: Optimizer State Device Mismatch on Cross-Device Resume
+### Pitfall 6: Spatial Attention Creates Dead Zones
 
-**What goes wrong:** `torch.load(path, map_location=device)` remaps model tensors but NOT optimizer state tensors (momentum buffers, Adam exp_avg). Loading CUDA checkpoint on MPS crashes at first optimizer.step().
-
-**Prevention:**
-```python
-for state in optimizer.state.values():
-    for k, v in state.items():
-        if isinstance(v, torch.Tensor):
-            state[k] = v.to(device)
-```
-
-**Phase:** Checkpoint resume phase.
-
-### Pitfall 7: torch.quantile Not Implemented on MPS
-
-**What goes wrong:** `uncertainty.py:129` uses `torch.quantile()` for confidence intervals. Not implemented on MPS.
+**What goes wrong:** Attention gate learns to always mask out quiet-sun regions. Since most of the image is quiet-sun, the model stops learning background flux dynamics entirely. Skip connections carry zero information for 80%+ of the spatial domain.
 
 **Prevention:**
-- Move tensor to CPU for quantile, move result back
-- Or implement via `torch.sort` + index selection
+- Initialize attention gate bias to ~2.0 (sigmoid(2.0) = 0.88), so default is "pass everything through"
+- The model must learn to reduce attention, not increase it
+- Monitor attention map statistics -- if >50% of pixels get attention < 0.1, investigate
 
-**Phase:** MPS support phase.
+**Phase:** Architecture scaling (Phase 10)
 
-### Pitfall 8: Lazy Loading Breaks Normalization Stats Computation
+### Pitfall 7: Temporal Attention Collapses to Last Frame
 
-**What goes wrong:** `loader.py:70-93` computes normalization by loading all data and sampling values. Lazy loading means data isn't in memory for stats.
-
-**Prevention:**
-- Compute norm stats in preprocessing step, save to metadata.json
-- Require metadata.json exists for lazy loading mode
-- Never compute global statistics lazily
-
-**Phase:** Data loading refactor phase.
-
-### Pitfall 9: pin_memory=True on Non-CUDA Devices
-
-**What goes wrong:** `loader.py:447,454,461` hardcode `pin_memory=True`. Wastes memory on MPS/CPU.
-
-**Prevention:** `pin_memory = (device.type == 'cuda')`
-
-**Phase:** Data loading or MPS support phase.
-
-### Pitfall 10: Non-Contiguous Tensors on MPS
-
-**What goes wrong:** `permute`, `view`, `reshape` create non-contiguous tensors. MPS Metal shaders may assume contiguous layout, producing wrong conv2d outputs.
-
-**Key locations:**
-- `losses.py:213` — `pred.permute(0,2,1,3,4).reshape(B*T,C,H,W)` — add `.contiguous()`
-- `predictor.py:199-202` — `x.view(B*T_in, ...)` chains
-
-**Prevention:** Add `.contiguous()` after permute/reshape that feeds into convolution.
-
-**Detection:** Compare per-element output on MPS vs CPU. Diff > 1e-4 indicates contiguity issue.
-
-**Phase:** MPS support phase.
-
-### Pitfall 11: np.random in Dataset Not Fork-Safe
-
-**What goes wrong:** `dataset.py:74-81` uses `np.random.rand()` for augmentation. Forked workers inherit same random state, producing identical augmentation.
+**What goes wrong:** Temporal attention over 10 encoder outputs learns to put all weight on the last frame (t=10), effectively becoming persistence. This is the easiest solution for the attention mechanism since the last frame is most similar to the target.
 
 **Prevention:**
-- Use `worker_init_fn` to reseed numpy per worker
-- Or switch to `torch.rand()` which handles worker seeding automatically
+- Use temperature scaling in softmax (temperature > 1.0) to prevent sharp peaking
+- Monitor attention weight distribution -- entropy should remain moderate
+- Consider additive attention (not pure multiplicative) to retain information from all frames
 
-**Phase:** Data loading refactor phase.
+**Phase:** Architecture scaling (Phase 10)
 
-### Pitfall 12: NaN Detection After backward() Is Too Late
+### Pitfall 8: Cosine LR + New Loss Terms = Unstable Early Training
 
-**What goes wrong:** Checking `loss.isnan()` after backward means NaN already propagated into gradients.
+**What goes wrong:** Cosine LR starts at base LR (1e-4) and decays. But with new loss terms, the effective gradient magnitude changes. Early epochs may be unstable because the model is simultaneously learning new loss landscapes and the LR is at its highest.
 
 **Prevention:**
-- Check loss BEFORE backward for forward-pass NaN
-- Check gradients after unscale_() before optimizer.step()
-- If NaN detected N times consecutively: reload last good checkpoint, reduce LR
+- Consider warmup: start at 1e-5 for 2-3 epochs, then cosine from 1e-4
+- Alternatively, train 5 epochs with old loss weights to stabilize, then introduce new terms
+- Monitor gradient norms in first 5 epochs -- should be stable, not oscillating
 
-**Phase:** Gradient handling phase.
+**Phase:** Training policy (Phase 9)
 
-**Codebase location:** `trainer.py:80-84` — no NaN check in the backward/step sequence.
+### Pitfall 9: Kernel Size 5 + Downsampled Input = Receptive Field Overshoot
 
-## Minor Pitfalls
+**What goes wrong:** With downsample_input=True (2x), the effective spatial resolution is ~220x442. Kernel size 5 on this gives significant receptive field per step. After 3 ConvLSTM layers, the receptive field may exceed meaningful spatial scales, causing the model to mix information from physically unrelated regions.
 
-### Pitfall 13: MPS Memory Not Freed by torch.cuda.empty_cache()
+**Prevention:**
+- This is unlikely to be a problem in practice (large-scale flux patterns are spatially correlated)
+- If test metrics don't improve with k=5, revert to k=3
+- Could try k=5 for first layer only, k=3 for deeper layers
 
-**Prevention:** Device-aware cleanup:
-```python
-if device.type == 'cuda': torch.cuda.empty_cache()
-elif device.type == 'mps': torch.mps.empty_cache()
-```
+**Phase:** Architecture scaling (Phase 10)
 
-### Pitfall 14: teacher_forcing_ratio Uses np.random Breaking Reproducibility
+### Pitfall 10: Delta Head Scale Parameter Explodes
 
-`predictor.py:289` — use `torch.rand(1).item()` instead of `np.random.rand()`.
+**What goes wrong:** The learnable scale parameter for delta normalization could grow unbounded, producing exaggerated predictions. No constraint prevents it from reaching 100x or 0.001x.
 
-### Pitfall 15: F.interpolate on MPS May Have Spatial Alignment Bugs
+**Prevention:**
+- Initialize to match typical delta magnitude (~0.01-0.1 in normalized space)
+- Apply soft clamping: `scale = softplus(raw_scale) + eps`
+- Or use `torch.clamp(scale, 0.01, 10.0)` to bound the range
+- Monitor scale value per epoch
 
-Test by comparing pixel-level output on MPS vs CPU for exact tensor shapes used in model.
+**Phase:** Architecture scaling (Phase 10)
 
-## Phase-Specific Summary
+### Pitfall 11: Checkpoint Incompatibility with Architecture Changes
 
-| Phase | Key Pitfalls | Priority Actions |
-|-------|-------------|-----------------|
-| MPS device support | AMP/GradScaler (#1), SSIM grouped conv (#2), torch.quantile (#7), contiguity (#10), F.interpolate (#15) | Device-aware branching, unit tests comparing MPS vs CPU |
-| Data loading refactor | mmap + workers (#4), normalization stats (#8), pin_memory (#9), np.random fork (#11) | Worker-local mmap opens, pre-computed stats |
-| Checkpoint resume | Scheduler not restored (#5), optimizer device mismatch (#6) | Save/restore all state, manual device remapping |
-| NaN/gradient handling | DummyScaler no NaN guard (#3), late NaN detection (#12) | Add NaN checks before optimizer.step() |
-| Config validation | Incompatible combinations (#14 from FEATURES) | Validate all config before data loading |
+**What goes wrong:** v3.0 adds spatial attention, temporal attention, and delta scale to the model. Loading a v2.0 checkpoint into a v3.0 model fails with "unexpected key" or "missing key" errors.
+
+**Prevention:**
+- Use `strict=False` in load_state_dict for warm-starting from v2.0
+- New modules (attention, scale) initialize randomly -- only existing layers transfer
+- Document that v3.0 training starts fresh (not from v2.0 checkpoint)
+
+**Phase:** Architecture scaling (Phase 10)
+
+## Information Gaps
+
+- **Optimal temporal_diff_weight relative to L1:** Unknown until empirical testing. Start at 1.0 (equal to L1).
+- **Attention mechanism memory cost:** Spatial attention is negligible. Temporal attention over 10 steps with [32,64,128] channels should be manageable with batch_size=1.
+- **Training time impact of k=5 + wider channels:** Estimated ~2-3x slower per epoch. Acceptable if val metrics improve.
 
 ---
-*Pitfalls analysis: 2026-02-02*
+*Research completed: 2026-03-07*
