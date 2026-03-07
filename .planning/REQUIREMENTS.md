@@ -23,7 +23,7 @@
 - [x] **LOSS-04**: WeightedMAE fixed to use absolute extreme threshold instead of per-sample relative normalization
 - [x] **LOSS-05**: Asymmetric loss penalty for underestimation of extreme regions (configurable alpha, applied above threshold only)
 - [x] **LOSS-06**: Extreme weight increased to 3.0+ in default config
-- [ ] **LOSS-07**: Each loss component logged separately during training (not just total)
+- [x] **LOSS-07**: Each loss component logged separately during training (not just total)
 
 ### Architecture
 
@@ -84,7 +84,7 @@
 | LOSS-04 | Phase 8 | Complete |
 | LOSS-05 | Phase 8 | Complete |
 | LOSS-06 | Phase 8 | Complete |
-| LOSS-07 | Phase 8 | Pending |
+| LOSS-07 | Phase 8 | Complete |
 | TRAIN-01 | Phase 9 | Pending |
 | TRAIN-02 | Phase 9 | Pending |
 | TRAIN-03 | Phase 9 | Pending |
