@@ -66,8 +66,8 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — TDD: Implement loss components (fix WeightedMAE, AsymmetricExtremeLoss, temporal diff/var/weighting functions)
-- [ ] 08-02-PLAN.md — Restructure CompositeLoss with 6-component temporal-aware forward, update config and factory
+- [x] 08-01-PLAN.md — TDD: Implement loss components (fix WeightedMAE, AsymmetricExtremeLoss, temporal diff/var/weighting functions)
+- [x] 08-02-PLAN.md — Restructure CompositeLoss with 6-component temporal-aware forward, update config and factory
 - [ ] 08-03-PLAN.md — Wire per-component loss logging into training loop and visualization
 
 ### Phase 9: Training Policy
@@ -118,7 +118,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | Phase                     | Plans Complete | Status      | Completed |
 | ------------------------- | -------------- | ----------- | --------- |
 | 7. Evaluation Metrics     | 1/2            | In Progress | -         |
-| 8. Loss Function Overhaul | 0/3            | Not started | -         |
+| 8. Loss Function Overhaul | 2/3            | In Progress | -         |
 | 9. Training Policy        | 0/TBD          | Not started | -         |
 | 10. Architecture Scaling  | 0/TBD          | Not started | -         |
 | 11. Integration Testing   | 0/TBD          | Not started | -         |

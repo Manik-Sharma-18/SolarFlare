@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-03-07T19:34:59.404Z"
-last_activity: 2026-03-08 — Completed 08-01 loss components (TDD)
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-03-07T19:40:45.198Z"
+last_activity: 2026-03-08 — Completed 08-02 CompositeLoss restructuring (TDD)
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
-  percent: 90
+  completed_plans: 4
+  percent: 95
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 8 of 11 (Loss Function Overhaul)
-Plan: 1 of 3 in current phase (08-01 complete)
+Plan: 2 of 3 in current phase (08-02 complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 08-01 loss components (TDD)
+Last activity: 2026-03-08 — Completed 08-02 CompositeLoss restructuring (TDD)
 
-Progress: [█████████░] 90%
+Progress: [██████████] 95%
 
 ## Accumulated Context
 
@@ -47,6 +47,10 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 08-01]: Used same threshold (0.3456) for loss as evaluation -- consistent definition of extreme
 - [Phase 08-01]: WeightedMAELoss default extreme_weight changed from 2.0 to 3.0 per LOSS-06 spec
 - [Phase 08-01]: T<=1 edge case returns 0.0 tensor for temporal functions (graceful degradation)
+- [Phase 08-02]: Per-timestep weights applied to element-wise L1 error (not pred/target) to preserve SSIM behavior
+- [Phase 08-02]: ssim_weight reduced from 0.5 to 0.3 per research recommendation for temporal term influence
+- [Phase 08-02]: Config cross-check warning when loss.extreme_threshold differs from evaluation.extreme_threshold
+- [Phase 08-02]: Per-timestep weights applied to element-wise L1 error (not pred/target) to preserve SSIM behavior
 
 ### Pending Todos
 
@@ -67,6 +71,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-07T19:34:59.403Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-03-07T19:40:40.251Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
