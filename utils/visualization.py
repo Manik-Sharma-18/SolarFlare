@@ -78,29 +78,85 @@ def visualize_predictions(
 
 
 def plot_training_history(history: dict, save_path: str = 'training_history.png'):
-    """Plot training and validation loss curves."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-    
-    # Loss curves
-    axes[0].plot(history['train_loss'], label='Train')
-    axes[0].plot(history['val_loss'], label='Validation')
-    axes[0].set_xlabel('Epoch')
-    axes[0].set_ylabel('Loss (MAE)')
-    axes[0].set_title('Training Progress')
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
-    
-    # Per-timestep MAE
+    """Plot training and validation loss curves with comprehensive metric subplots.
+
+    Layout: 2 rows x 3 cols = 6 subplots.
+    Row 0: Loss curves, Per-timestep MAE, CSI & HSS over epochs.
+    Row 1: SSIM over epochs, Persistence skill per timestep, Temporal variation ratio.
+
+    Backward-compatible: new subplots are only populated when the corresponding
+    metric keys exist in history (old history files still work).
+    """
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+
+    # --- (0,0) Loss curves ---
+    axes[0, 0].plot(history['train_loss'], label='Train')
+    axes[0, 0].plot(history['val_loss'], label='Validation')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Loss (MAE)')
+    axes[0, 0].set_title('Training Progress')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+
+    # --- (0,1) Per-timestep MAE ---
     if 'val_mae_per_timestep' in history and len(history['val_mae_per_timestep']) > 0:
         mae_array = np.array(history['val_mae_per_timestep'])
-        for t in range(mae_array.shape[1]):
-            axes[1].plot(mae_array[:, t], label=f't+{t+1}')
-        axes[1].set_xlabel('Epoch')
-        axes[1].set_ylabel('MAE')
-        axes[1].set_title('Validation MAE per Timestep')
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
-    
+        if mae_array.ndim == 2 and mae_array.shape[1] > 0:
+            for t in range(mae_array.shape[1]):
+                axes[0, 1].plot(mae_array[:, t], label=f't+{t+1}')
+            axes[0, 1].set_xlabel('Epoch')
+            axes[0, 1].set_ylabel('MAE')
+            axes[0, 1].set_title('Validation MAE per Timestep')
+            axes[0, 1].legend()
+            axes[0, 1].grid(True, alpha=0.3)
+
+    # --- (0,2) CSI and HSS over epochs ---
+    has_csi = 'val_csi' in history and len(history['val_csi']) > 0
+    has_hss = 'val_hss' in history and len(history['val_hss']) > 0
+    if has_csi or has_hss:
+        if has_csi:
+            axes[0, 2].plot(history['val_csi'], label='CSI', color='tab:blue')
+        if has_hss:
+            axes[0, 2].plot(history['val_hss'], label='HSS', color='tab:orange')
+        axes[0, 2].set_xlabel('Epoch')
+        axes[0, 2].set_ylabel('Score')
+        axes[0, 2].set_title('CSI & HSS over Epochs')
+        axes[0, 2].legend()
+        axes[0, 2].grid(True, alpha=0.3)
+        axes[0, 2].set_ylim(bottom=0)
+
+    # --- (1,0) SSIM over epochs ---
+    if 'val_ssim' in history and len(history['val_ssim']) > 0:
+        axes[1, 0].plot(history['val_ssim'], label='SSIM', color='tab:green')
+        axes[1, 0].set_xlabel('Epoch')
+        axes[1, 0].set_ylabel('SSIM')
+        axes[1, 0].set_title('Validation SSIM over Epochs')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True, alpha=0.3)
+
+    # --- (1,1) Persistence skill per timestep over epochs ---
+    if 'persistence_skill_per_timestep' in history and len(history['persistence_skill_per_timestep']) > 0:
+        skill_array = np.array(history['persistence_skill_per_timestep'])
+        if skill_array.ndim == 2 and skill_array.shape[1] > 0:
+            for t in range(skill_array.shape[1]):
+                axes[1, 1].plot(skill_array[:, t], label=f't+{t+1}')
+            axes[1, 1].axhline(y=0, color='gray', linestyle='--', alpha=0.5, label='No Skill')
+            axes[1, 1].set_xlabel('Epoch')
+            axes[1, 1].set_ylabel('Skill (%)')
+            axes[1, 1].set_title('Persistence Skill per Timestep')
+            axes[1, 1].legend()
+            axes[1, 1].grid(True, alpha=0.3)
+
+    # --- (1,2) Temporal variation ratio over epochs ---
+    if 'temporal_variation_ratio' in history and len(history['temporal_variation_ratio']) > 0:
+        axes[1, 2].plot(history['temporal_variation_ratio'], label='Temporal Var Ratio', color='tab:purple')
+        axes[1, 2].axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='Perfect (1.0)')
+        axes[1, 2].set_xlabel('Epoch')
+        axes[1, 2].set_ylabel('Ratio')
+        axes[1, 2].set_title('Temporal Variation Ratio over Epochs')
+        axes[1, 2].legend()
+        axes[1, 2].grid(True, alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()

@@ -281,6 +281,37 @@ def validate_config(config: dict) -> None:
                     )
 
     # ------------------------------------------------------------------ #
+    # evaluation section (optional)
+    # ------------------------------------------------------------------ #
+    evaluation = config.get("evaluation")
+    if isinstance(evaluation, dict):
+        # extreme_threshold
+        et = evaluation.get("extreme_threshold")
+        if et is not None:
+            if _require_type("evaluation.extreme_threshold", (int, float), et):
+                if et <= 0:
+                    errors.append(
+                        f"'evaluation.extreme_threshold' must be positive, got {et}"
+                    )
+                elif et > 1.0:
+                    warnings.append(
+                        f"evaluation.extreme_threshold is {et} (> 1.0); "
+                        f"ensure this is correct for your normalized data space"
+                    )
+                elif et < 0.01:
+                    warnings.append(
+                        f"evaluation.extreme_threshold is {et} (< 0.01); "
+                        f"very low threshold may classify most values as extreme"
+                    )
+
+        # verbose_metrics
+        vm = evaluation.get("verbose_metrics")
+        if vm is not None and not isinstance(vm, bool):
+            errors.append(
+                f"'evaluation.verbose_metrics' must be a bool, got {type(vm).__name__}: {vm!r}"
+            )
+
+    # ------------------------------------------------------------------ #
     # normalization section
     # ------------------------------------------------------------------ #
     norm = config.get("normalization")

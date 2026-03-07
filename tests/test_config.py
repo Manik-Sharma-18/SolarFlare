@@ -182,3 +182,40 @@ def test_uncertainty_n_samples_too_low(base_config):
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(base_config)
     assert any("n_samples" in e and ">= 2" in e for e in exc_info.value.errors)
+
+
+# ------------------------------------------------------------------ #
+# Evaluation section validation (Phase 7)
+# ------------------------------------------------------------------ #
+
+
+def test_valid_evaluation_section(base_config):
+    """Config with valid evaluation section passes validation."""
+    base_config["evaluation"] = {
+        "extreme_threshold": 0.3456,
+        "verbose_metrics": False,
+    }
+    validate_config(base_config)  # Should not raise
+
+
+def test_evaluation_negative_threshold(base_config):
+    """Negative extreme_threshold raises ConfigValidationError."""
+    base_config["evaluation"] = {"extreme_threshold": -0.5}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config(base_config)
+    assert any("extreme_threshold" in e and "positive" in e for e in exc_info.value.errors)
+
+
+def test_evaluation_verbose_metrics_non_bool(base_config):
+    """Non-bool verbose_metrics raises ConfigValidationError."""
+    base_config["evaluation"] = {"verbose_metrics": "yes"}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config(base_config)
+    assert any("verbose_metrics" in e and "bool" in e for e in exc_info.value.errors)
+
+
+def test_evaluation_section_optional(base_config):
+    """Config without evaluation section still passes (defaults used)."""
+    # base_config has no evaluation key by default
+    assert "evaluation" not in base_config
+    validate_config(base_config)  # Should not raise

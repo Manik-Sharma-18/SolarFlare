@@ -66,6 +66,11 @@ loss:
   ssim_data_range: 2.0    # Data range for SSIM (2.0 for normalized [-1,1])
   ssim_tiling_threshold: 256  # Tile SSIM computation for spatial dims above this (prevents OOM on 512x512+)
 
+# Evaluation metrics configuration
+evaluation:
+  extreme_threshold: 0.3456    # Normalized space threshold for CSI/HSS binary classification
+  verbose_metrics: false        # Print per-timestep breakdown every epoch (vs only final)
+
 output:
   save_dir: "./outputs"   # Directory for checkpoints and logs
   checkpoint_name: "best_model.pt"
