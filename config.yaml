@@ -60,11 +60,18 @@ training:
 loss:
   type: "composite"       # "l1", "composite", or "weighted"
   l1_weight: 1.0          # Weight for L1 (MAE) loss
-  ssim_weight: 0.5        # Weight for SSIM loss (as 1 - SSIM)
-  extreme_weight: 1.0     # Weight for extreme value weighted loss
+  ssim_weight: 0.3        # Weight for SSIM loss (as 1 - SSIM), reduced from 0.5 per research
+  extreme_weight: 3.0     # Weight for extreme value weighted loss (LOSS-06: increased from 1.0)
   use_ms_ssim: false       # Use multi-scale SSIM (better for larger images)
   ssim_data_range: 2.0    # Data range for SSIM (2.0 for normalized [-1,1])
   ssim_tiling_threshold: 256  # Tile SSIM computation for spatial dims above this (prevents OOM on 512x512+)
+  # v3.0 temporal dynamics and extreme penalty
+  temporal_diff_weight: 1.0  # Weight for temporal difference loss (equal to L1)
+  temporal_var_lambda: 0.1   # Lambda for temporal variation penalty (gentle nudge)
+  temporal_weights: [1.0, 1.5, 2.0, 2.5]  # Per-timestep weighting (linear ramp)
+  asymmetric_weight: 0.5    # Weight for asymmetric extreme loss
+  asymmetric_alpha: 2.0     # Underestimation costs 2x overestimation above threshold
+  extreme_threshold: 0.3456 # Matches evaluation threshold for consistent extreme definition
 
 # Evaluation metrics configuration
 evaluation:

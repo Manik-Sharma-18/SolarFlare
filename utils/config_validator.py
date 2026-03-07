@@ -280,6 +280,69 @@ def validate_config(config: dict) -> None:
                         f"'loss.ssim_tiling_threshold' must be >= 32 (SSIM window_size=11), got {ssim_tile}"
                     )
 
+        # temporal_diff_weight (optional, default 1.0)
+        tdw = loss.get("temporal_diff_weight")
+        if tdw is not None:
+            if _require_type("loss.temporal_diff_weight", (int, float), tdw):
+                if tdw < 0:
+                    errors.append(f"'loss.temporal_diff_weight' must be >= 0, got {tdw}")
+
+        # temporal_var_lambda (optional, default 0.1)
+        tvl = loss.get("temporal_var_lambda")
+        if tvl is not None:
+            if _require_type("loss.temporal_var_lambda", (int, float), tvl):
+                if tvl < 0:
+                    errors.append(f"'loss.temporal_var_lambda' must be >= 0, got {tvl}")
+
+        # temporal_weights (optional, default [1.0, 1.5, 2.0, 2.5])
+        tw = loss.get("temporal_weights")
+        if tw is not None:
+            if not isinstance(tw, list):
+                errors.append(
+                    f"'loss.temporal_weights' must be a list of numbers, "
+                    f"got {type(tw).__name__}: {tw!r}"
+                )
+            else:
+                for i, w in enumerate(tw):
+                    if not isinstance(w, (int, float)):
+                        errors.append(
+                            f"'loss.temporal_weights[{i}]' must be a number, "
+                            f"got {type(w).__name__}: {w!r}"
+                        )
+
+        # asymmetric_weight (optional, default 0.5)
+        aw = loss.get("asymmetric_weight")
+        if aw is not None:
+            if _require_type("loss.asymmetric_weight", (int, float), aw):
+                if aw < 0:
+                    errors.append(f"'loss.asymmetric_weight' must be >= 0, got {aw}")
+
+        # asymmetric_alpha (optional, default 2.0)
+        aa = loss.get("asymmetric_alpha")
+        if aa is not None:
+            if _require_type("loss.asymmetric_alpha", (int, float), aa):
+                if aa < 1.0:
+                    errors.append(f"'loss.asymmetric_alpha' must be >= 1.0, got {aa}")
+
+        # extreme_threshold (optional, default 0.3456)
+        et_loss = loss.get("extreme_threshold")
+        if et_loss is not None:
+            if _require_type("loss.extreme_threshold", (int, float), et_loss):
+                if et_loss <= 0:
+                    errors.append(f"'loss.extreme_threshold' must be > 0, got {et_loss}")
+
+        # Cross-check: warn if loss.extreme_threshold differs from evaluation.extreme_threshold
+        eval_section = config.get("evaluation", {})
+        if isinstance(eval_section, dict) and et_loss is not None:
+            eval_et = eval_section.get("extreme_threshold")
+            if eval_et is not None and isinstance(eval_et, (int, float)):
+                if abs(et_loss - eval_et) > 1e-6:
+                    warnings.append(
+                        f"loss.extreme_threshold ({et_loss}) differs from "
+                        f"evaluation.extreme_threshold ({eval_et}); "
+                        f"consider keeping them consistent"
+                    )
+
     # ------------------------------------------------------------------ #
     # evaluation section (optional)
     # ------------------------------------------------------------------ #
