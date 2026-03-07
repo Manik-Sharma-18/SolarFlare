@@ -17,7 +17,19 @@ from tqdm import tqdm
 
 from utils.device import get_amp_context, get_grad_scaler, clear_device_cache
 from utils.checkpoint import save_checkpoint, load_checkpoint_for_resume
-from utils.metrics import compute_metrics
+from utils.metrics import (
+    compute_metrics,
+    accumulate_contingency,
+    compute_csi,
+    compute_hss,
+    compute_persistence_prediction,
+    compute_persistence_skill,
+    compute_ssim_per_timestep,
+    compute_peak_flux_error,
+    compute_temporal_variation_ratio,
+    compute_rmse_per_timestep,
+    compute_correlation_per_timestep,
+)
 from .losses import get_loss_function, CompositeLoss
 
 logger = logging.getLogger(__name__)
@@ -145,11 +157,20 @@ def validate(
     loss_fn: Optional[nn.Module] = None,
     use_amp: bool = True,
     show_progress: bool = True,
-    output_channels: int = 1
-) -> tuple:
+    output_channels: int = 1,
+    extreme_threshold: float = 0.3456,
+    ssim_data_range: float = 2.0,
+    verbose_metrics: bool = False,
+    epoch: Optional[int] = None,
+    total_epochs: Optional[int] = None,
+) -> dict:
     """
     Validate model on a dataset.
-    
+
+    Returns a structured dict containing all evaluation metrics including
+    per-timestep MAE, RMSE, correlation, CSI, HSS, SSIM, persistence
+    baseline comparison, peak flux error, and temporal variation ratio.
+
     Args:
         model: Model to validate
         dataloader: Validation data loader
@@ -158,16 +179,37 @@ def validate(
         use_amp: Use automatic mixed precision
         show_progress: Show progress bar
         output_channels: Number of output channels
-    
+        extreme_threshold: Threshold for CSI/HSS binary classification
+        ssim_data_range: Data range for SSIM computation
+        verbose_metrics: Print per-timestep breakdown every epoch
+        epoch: Current epoch number (for verbose/final-epoch logic)
+        total_epochs: Total number of epochs (for final-epoch detection)
+
     Returns:
-        avg_loss: Average validation loss
-        avg_mae_per_timestep: MAE for each output timestep
+        Dict with keys: val_loss, val_mae_per_timestep, val_rmse_per_timestep,
+        val_correlation_per_timestep, val_csi, val_csi_per_timestep, val_hss,
+        val_hss_per_timestep, val_ssim, val_ssim_per_timestep,
+        persistence_mae_per_timestep, persistence_skill_per_timestep,
+        persistence_csi, persistence_hss, peak_flux_error_per_timestep,
+        temporal_variation_ratio.
     """
     model.eval()
     total_loss = 0.0
     valid_batches = 0
     nan_batches = 0
+
+    # Running accumulators (will be averaged over batches)
     all_mae_per_timestep = []
+    all_rmse_per_timestep = []
+    all_correlation_per_timestep = []
+    all_ssim_per_timestep = []
+    all_peak_flux_error_per_timestep = []
+    all_persistence_mae_per_timestep = []
+    all_temporal_variation_ratios = []
+
+    # Contingency table accumulators (summed across ALL batches, then CSI/HSS computed once)
+    model_contingency_totals = None  # list of [tp, fp, fn, tn] per timestep
+    persistence_contingency_totals = None
 
     # Default to L1 loss if none provided
     if loss_fn is None:
@@ -197,8 +239,73 @@ def validate(
 
             total_loss += loss.item()
             valid_batches += 1
+
+            # --- Per-timestep MAE (existing) ---
             metrics = compute_metrics(predictions, Y_target)
             all_mae_per_timestep.append(metrics['mae_per_timestep'])
+
+            # --- Per-timestep RMSE ---
+            all_rmse_per_timestep.append(
+                compute_rmse_per_timestep(predictions, Y_target)
+            )
+
+            # --- Per-timestep Correlation ---
+            all_correlation_per_timestep.append(
+                compute_correlation_per_timestep(predictions, Y_target)
+            )
+
+            # --- Contingency table for model predictions (accumulate across batches) ---
+            batch_contingency = accumulate_contingency(
+                predictions, Y_target, extreme_threshold
+            )
+            if model_contingency_totals is None:
+                model_contingency_totals = [[tp, fp, fn, tn] for tp, fp, fn, tn in batch_contingency]
+            else:
+                for t, (tp, fp, fn, tn) in enumerate(batch_contingency):
+                    model_contingency_totals[t][0] += tp
+                    model_contingency_totals[t][1] += fp
+                    model_contingency_totals[t][2] += fn
+                    model_contingency_totals[t][3] += tn
+
+            # --- Persistence baseline ---
+            T_out = predictions.shape[2]
+            persistence_pred = compute_persistence_prediction(
+                X_in, output_channels, T_out
+            ).to(device)
+
+            # Persistence MAE per timestep
+            persistence_metrics = compute_metrics(persistence_pred, Y_target)
+            all_persistence_mae_per_timestep.append(persistence_metrics['mae_per_timestep'])
+
+            # Persistence contingency table
+            batch_persistence_contingency = accumulate_contingency(
+                persistence_pred, Y_target, extreme_threshold
+            )
+            if persistence_contingency_totals is None:
+                persistence_contingency_totals = [
+                    [tp, fp, fn, tn] for tp, fp, fn, tn in batch_persistence_contingency
+                ]
+            else:
+                for t, (tp, fp, fn, tn) in enumerate(batch_persistence_contingency):
+                    persistence_contingency_totals[t][0] += tp
+                    persistence_contingency_totals[t][1] += fp
+                    persistence_contingency_totals[t][2] += fn
+                    persistence_contingency_totals[t][3] += tn
+
+            # --- SSIM per timestep ---
+            all_ssim_per_timestep.append(
+                compute_ssim_per_timestep(predictions, Y_target, data_range=ssim_data_range)
+            )
+
+            # --- Peak flux error per timestep ---
+            all_peak_flux_error_per_timestep.append(
+                compute_peak_flux_error(predictions, Y_target)
+            )
+
+            # --- Temporal variation ratio ---
+            all_temporal_variation_ratios.append(
+                compute_temporal_variation_ratio(predictions, Y_target)
+            )
 
     if nan_batches > 0:
         logger.warning(
@@ -206,10 +313,99 @@ def validate(
             nan_batches, len(dataloader)
         )
 
+    # --- Compute final metrics from accumulated values ---
     avg_loss = total_loss / valid_batches if valid_batches > 0 else float('nan')
-    avg_mae_per_timestep = np.mean(all_mae_per_timestep, axis=0) if all_mae_per_timestep else np.array([])
 
-    return avg_loss, avg_mae_per_timestep
+    avg_mae_per_timestep = (
+        np.mean(all_mae_per_timestep, axis=0).tolist()
+        if all_mae_per_timestep else []
+    )
+    avg_rmse_per_timestep = (
+        np.mean(all_rmse_per_timestep, axis=0).tolist()
+        if all_rmse_per_timestep else []
+    )
+    avg_correlation_per_timestep = (
+        np.mean(all_correlation_per_timestep, axis=0).tolist()
+        if all_correlation_per_timestep else []
+    )
+    avg_ssim_per_timestep = (
+        np.mean(all_ssim_per_timestep, axis=0).tolist()
+        if all_ssim_per_timestep else []
+    )
+    avg_peak_flux_error_per_timestep = (
+        np.mean(all_peak_flux_error_per_timestep, axis=0).tolist()
+        if all_peak_flux_error_per_timestep else []
+    )
+    avg_persistence_mae_per_timestep = (
+        np.mean(all_persistence_mae_per_timestep, axis=0).tolist()
+        if all_persistence_mae_per_timestep else []
+    )
+    avg_temporal_variation_ratio = float(
+        np.mean(all_temporal_variation_ratios)
+        if all_temporal_variation_ratios else 0.0
+    )
+
+    # CSI/HSS from accumulated contingency tables (NOT batch-averaged)
+    val_csi_per_timestep = []
+    val_hss_per_timestep = []
+    if model_contingency_totals:
+        for tp, fp, fn, tn in model_contingency_totals:
+            val_csi_per_timestep.append(compute_csi(tp, fp, fn))
+            val_hss_per_timestep.append(compute_hss(tp, fp, fn, tn))
+
+    # Pool model contingency across timesteps for overall CSI/HSS
+    if model_contingency_totals:
+        total_tp = sum(c[0] for c in model_contingency_totals)
+        total_fp = sum(c[1] for c in model_contingency_totals)
+        total_fn = sum(c[2] for c in model_contingency_totals)
+        total_tn = sum(c[3] for c in model_contingency_totals)
+        val_csi = compute_csi(total_tp, total_fp, total_fn)
+        val_hss = compute_hss(total_tp, total_fp, total_fn, total_tn)
+    else:
+        val_csi = 0.0
+        val_hss = 0.0
+
+    # Persistence CSI/HSS from accumulated contingency
+    if persistence_contingency_totals:
+        p_total_tp = sum(c[0] for c in persistence_contingency_totals)
+        p_total_fp = sum(c[1] for c in persistence_contingency_totals)
+        p_total_fn = sum(c[2] for c in persistence_contingency_totals)
+        p_total_tn = sum(c[3] for c in persistence_contingency_totals)
+        persistence_csi = compute_csi(p_total_tp, p_total_fp, p_total_fn)
+        persistence_hss = compute_hss(p_total_tp, p_total_fp, p_total_fn, p_total_tn)
+    else:
+        persistence_csi = 0.0
+        persistence_hss = 0.0
+
+    # SSIM average across timesteps
+    val_ssim = float(np.mean(avg_ssim_per_timestep)) if avg_ssim_per_timestep else 0.0
+
+    # Persistence skill per timestep
+    persistence_skill_per_timestep = []
+    if avg_mae_per_timestep and avg_persistence_mae_per_timestep:
+        for model_mae, pers_mae in zip(avg_mae_per_timestep, avg_persistence_mae_per_timestep):
+            persistence_skill_per_timestep.append(
+                compute_persistence_skill(model_mae, pers_mae)
+            )
+
+    return {
+        'val_loss': float(avg_loss),
+        'val_mae_per_timestep': avg_mae_per_timestep,
+        'val_rmse_per_timestep': avg_rmse_per_timestep,
+        'val_correlation_per_timestep': avg_correlation_per_timestep,
+        'val_csi': val_csi,
+        'val_csi_per_timestep': val_csi_per_timestep,
+        'val_hss': val_hss,
+        'val_hss_per_timestep': val_hss_per_timestep,
+        'val_ssim': val_ssim,
+        'val_ssim_per_timestep': avg_ssim_per_timestep,
+        'persistence_mae_per_timestep': avg_persistence_mae_per_timestep,
+        'persistence_skill_per_timestep': persistence_skill_per_timestep,
+        'persistence_csi': persistence_csi,
+        'persistence_hss': persistence_hss,
+        'peak_flux_error_per_timestep': avg_peak_flux_error_per_timestep,
+        'temporal_variation_ratio': avg_temporal_variation_ratio,
+    }
 
 
 def train_model(
@@ -291,6 +487,12 @@ def train_model(
     # Gradient scaler for mixed precision
     scaler = get_grad_scaler(use_amp, device)
     
+    # Evaluation config
+    eval_config = config.get('evaluation', {})
+    extreme_threshold = eval_config.get('extreme_threshold', 0.3456)
+    verbose_metrics = eval_config.get('verbose_metrics', False)
+    ssim_data_range = config.get('loss', {}).get('ssim_data_range', 2.0)
+
     # Training state
     best_val_loss = float('inf')
     patience_counter = 0
@@ -298,7 +500,21 @@ def train_model(
         'train_loss': [],
         'val_loss': [],
         'val_mae_per_timestep': [],
-        'learning_rate': []
+        'learning_rate': [],
+        'val_csi': [],
+        'val_hss': [],
+        'val_ssim': [],
+        'val_ssim_per_timestep': [],
+        'persistence_skill_per_timestep': [],
+        'persistence_csi': [],
+        'persistence_hss': [],
+        'peak_flux_error_per_timestep': [],
+        'temporal_variation_ratio': [],
+        'val_rmse_per_timestep': [],
+        'val_correlation_per_timestep': [],
+        'val_csi_per_timestep': [],
+        'val_hss_per_timestep': [],
+        'persistence_mae_per_timestep': [],
     }
 
     # Resume from checkpoint if requested
@@ -391,24 +607,72 @@ def train_model(
                 raise
 
             # Validate
-            val_loss, val_mae_per_timestep = validate(
-                model, val_loader, device, loss_fn, use_amp, show_progress, output_channels
+            val_metrics = validate(
+                model, val_loader, device, loss_fn, use_amp, show_progress,
+                output_channels, extreme_threshold=extreme_threshold,
+                ssim_data_range=ssim_data_range, verbose_metrics=verbose_metrics,
+                epoch=epoch, total_epochs=epochs,
             )
+            val_loss = val_metrics['val_loss']
+            val_mae_per_timestep = val_metrics['val_mae_per_timestep']
 
             # Update scheduler
             if scheduler_enabled:
                 scheduler.step()
 
-            # Log
+            # Log epoch summary
             print(f"  Train Loss: {train_loss:.6f}")
             print(f"  Val Loss:   {val_loss:.6f}")
             print(f"  Val MAE:    {val_mae_per_timestep}")
+            print(f"  CSI: {val_metrics['val_csi']:.4f} | HSS: {val_metrics['val_hss']:.4f}"
+                  f" | SSIM: {val_metrics['val_ssim']:.4f}")
+            avg_persist_skill = (
+                np.mean(val_metrics['persistence_skill_per_timestep'])
+                if val_metrics['persistence_skill_per_timestep'] else 0.0
+            )
+            print(f"  Persistence Skill: {avg_persist_skill:.1f}%"
+                  f" | Temporal Var Ratio: {val_metrics['temporal_variation_ratio']:.3f}")
 
+            # Per-timestep breakdown at final epoch or if verbose_metrics
+            is_final_epoch = (epoch == epochs)
+            if verbose_metrics or is_final_epoch:
+                T = len(val_mae_per_timestep)
+                print("  --- Per-Timestep Breakdown ---")
+                for t in range(T):
+                    rmse_t = val_metrics['val_rmse_per_timestep'][t] if t < len(val_metrics['val_rmse_per_timestep']) else 0.0
+                    corr_t = val_metrics['val_correlation_per_timestep'][t] if t < len(val_metrics['val_correlation_per_timestep']) else 0.0
+                    csi_t = val_metrics['val_csi_per_timestep'][t] if t < len(val_metrics['val_csi_per_timestep']) else 0.0
+                    hss_t = val_metrics['val_hss_per_timestep'][t] if t < len(val_metrics['val_hss_per_timestep']) else 0.0
+                    ssim_t = val_metrics['val_ssim_per_timestep'][t] if t < len(val_metrics['val_ssim_per_timestep']) else 0.0
+                    skill_t = val_metrics['persistence_skill_per_timestep'][t] if t < len(val_metrics['persistence_skill_per_timestep']) else 0.0
+                    pfe_t = val_metrics['peak_flux_error_per_timestep'][t] if t < len(val_metrics['peak_flux_error_per_timestep']) else 0.0
+                    print(f"    t+{t+1}: MAE={val_mae_per_timestep[t]:.4f} RMSE={rmse_t:.4f}"
+                          f" Corr={corr_t:.4f} CSI={csi_t:.4f} HSS={hss_t:.4f}"
+                          f" SSIM={ssim_t:.4f} Skill={skill_t:.1f}% PFE={pfe_t:.4f}")
+
+            # Update history
             history['train_loss'].append(train_loss)
             history['val_loss'].append(val_loss)
-            history['val_mae_per_timestep'].append(val_mae_per_timestep.tolist()
-                if hasattr(val_mae_per_timestep, 'tolist') else [])
+            history['val_mae_per_timestep'].append(
+                val_mae_per_timestep if isinstance(val_mae_per_timestep, list)
+                else val_mae_per_timestep.tolist() if hasattr(val_mae_per_timestep, 'tolist')
+                else []
+            )
             history['learning_rate'].append(current_lr)
+            history['val_csi'].append(val_metrics['val_csi'])
+            history['val_hss'].append(val_metrics['val_hss'])
+            history['val_ssim'].append(val_metrics['val_ssim'])
+            history['val_ssim_per_timestep'].append(val_metrics['val_ssim_per_timestep'])
+            history['persistence_skill_per_timestep'].append(val_metrics['persistence_skill_per_timestep'])
+            history['persistence_csi'].append(val_metrics['persistence_csi'])
+            history['persistence_hss'].append(val_metrics['persistence_hss'])
+            history['peak_flux_error_per_timestep'].append(val_metrics['peak_flux_error_per_timestep'])
+            history['temporal_variation_ratio'].append(val_metrics['temporal_variation_ratio'])
+            history['val_rmse_per_timestep'].append(val_metrics['val_rmse_per_timestep'])
+            history['val_correlation_per_timestep'].append(val_metrics['val_correlation_per_timestep'])
+            history['val_csi_per_timestep'].append(val_metrics['val_csi_per_timestep'])
+            history['val_hss_per_timestep'].append(val_metrics['val_hss_per_timestep'])
+            history['persistence_mae_per_timestep'].append(val_metrics['persistence_mae_per_timestep'])
 
             # Free device caches between epochs (GPU/MPS memory)
             clear_device_cache(device)

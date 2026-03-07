@@ -170,6 +170,7 @@ def run_training(config: dict):
         'output_channels': output_channels,
         'error_handling': config.get('error_handling', {}),
         'resume_from': config.get('resume_from'),
+        'evaluation': config.get('evaluation', {}),
     }
 
     # Train
@@ -198,21 +199,55 @@ def run_training(config: dict):
     loss_fn = get_loss_function(config.get('loss', {'type': 'l1'}))
     loss_fn = loss_fn.to(device)
     
-    test_loss, test_mae_per_timestep = validate(
+    eval_config = config.get('evaluation', {})
+    extreme_threshold = eval_config.get('extreme_threshold', 0.3456)
+    ssim_data_range = config.get('loss', {}).get('ssim_data_range', 2.0)
+
+    test_metrics = validate(
         model, test_loader, device,
         loss_fn=loss_fn,
         use_amp=config['training']['use_amp'],
         show_progress=config['logging']['progress_bar'],
-        output_channels=output_channels
+        output_channels=output_channels,
+        extreme_threshold=extreme_threshold,
+        ssim_data_range=ssim_data_range,
     )
-    
+    test_loss = test_metrics['val_loss']
+    test_mae_per_timestep = test_metrics['val_mae_per_timestep']
+
     print(f"Test Loss: {test_loss:.6f}")
     print(f"Test MAE per timestep: {test_mae_per_timestep}")
-    
-    # Save test results
+    print(f"Test CSI: {test_metrics['val_csi']:.4f} | HSS: {test_metrics['val_hss']:.4f}")
+    print(f"Test SSIM: {test_metrics['val_ssim']:.4f}")
+    avg_persist_skill = (
+        np.mean(test_metrics['persistence_skill_per_timestep'])
+        if test_metrics['persistence_skill_per_timestep'] else 0.0
+    )
+    print(f"Test Persistence Skill: {avg_persist_skill:.1f}%")
+    print(f"Test Temporal Var Ratio: {test_metrics['temporal_variation_ratio']:.3f}")
+
+    # Save test results (all metrics)
     test_results = {
         'test_loss': float(test_loss),
-        'test_mae_per_timestep': test_mae_per_timestep.tolist()
+        'test_mae_per_timestep': (
+            test_mae_per_timestep if isinstance(test_mae_per_timestep, list)
+            else test_mae_per_timestep.tolist() if hasattr(test_mae_per_timestep, 'tolist')
+            else []
+        ),
+        'test_rmse_per_timestep': test_metrics['val_rmse_per_timestep'],
+        'test_correlation_per_timestep': test_metrics['val_correlation_per_timestep'],
+        'test_csi': test_metrics['val_csi'],
+        'test_csi_per_timestep': test_metrics['val_csi_per_timestep'],
+        'test_hss': test_metrics['val_hss'],
+        'test_hss_per_timestep': test_metrics['val_hss_per_timestep'],
+        'test_ssim': test_metrics['val_ssim'],
+        'test_ssim_per_timestep': test_metrics['val_ssim_per_timestep'],
+        'persistence_mae_per_timestep': test_metrics['persistence_mae_per_timestep'],
+        'persistence_skill_per_timestep': test_metrics['persistence_skill_per_timestep'],
+        'persistence_csi': test_metrics['persistence_csi'],
+        'persistence_hss': test_metrics['persistence_hss'],
+        'peak_flux_error_per_timestep': test_metrics['peak_flux_error_per_timestep'],
+        'temporal_variation_ratio': test_metrics['temporal_variation_ratio'],
     }
     with open(output_dir / 'test_results.json', 'w') as f:
         json.dump(test_results, f, indent=2)
