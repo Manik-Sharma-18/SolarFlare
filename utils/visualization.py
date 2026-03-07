@@ -80,14 +80,15 @@ def visualize_predictions(
 def plot_training_history(history: dict, save_path: str = 'training_history.png'):
     """Plot training and validation loss curves with comprehensive metric subplots.
 
-    Layout: 2 rows x 3 cols = 6 subplots.
+    Layout: 3 rows x 3 cols = 9 subplots.
     Row 0: Loss curves, Per-timestep MAE, CSI & HSS over epochs.
     Row 1: SSIM over epochs, Persistence skill per timestep, Temporal variation ratio.
+    Row 2: All loss components (log), Temporal terms, Extreme terms.
 
     Backward-compatible: new subplots are only populated when the corresponding
     metric keys exist in history (old history files still work).
     """
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig, axes = plt.subplots(3, 3, figsize=(18, 15))
 
     # --- (0,0) Loss curves ---
     axes[0, 0].plot(history['train_loss'], label='Train')
@@ -156,6 +157,74 @@ def plot_training_history(history: dict, save_path: str = 'training_history.png'
         axes[1, 2].set_title('Temporal Variation Ratio over Epochs')
         axes[1, 2].legend()
         axes[1, 2].grid(True, alpha=0.3)
+
+    # --- Row 2: Loss component breakdown ---
+    # Component color scheme (tab10)
+    comp_colors = {
+        'train_l1': 'tab:blue',
+        'train_ssim': 'tab:orange',
+        'train_extreme': 'tab:green',
+        'train_temporal_diff': 'tab:red',
+        'train_temporal_var': 'tab:purple',
+        'train_asymmetric': 'tab:brown',
+    }
+    comp_labels = {
+        'train_l1': 'L1',
+        'train_ssim': 'SSIM',
+        'train_extreme': 'Extreme',
+        'train_temporal_diff': 'Temporal Diff',
+        'train_temporal_var': 'Temporal Var (|v|)',
+        'train_asymmetric': 'Asymmetric',
+    }
+
+    # --- (2,0) All loss components overlaid (log scale) ---
+    has_components = 'train_l1' in history and len(history.get('train_l1', [])) > 0
+    if has_components:
+        for key, color in comp_colors.items():
+            if key in history and len(history[key]) > 0:
+                values = history[key]
+                # Plot absolute values (temporal_var is negative)
+                plot_vals = [abs(v) for v in values]
+                axes[2, 0].plot(plot_vals, label=comp_labels[key], color=color)
+        axes[2, 0].set_yscale('log')
+        axes[2, 0].set_xlabel('Epoch')
+        axes[2, 0].set_ylabel('Loss (log scale)')
+        axes[2, 0].set_title('Loss Components')
+        axes[2, 0].legend(fontsize=8)
+        axes[2, 0].grid(True, alpha=0.3)
+
+    # --- (2,1) Temporal terms ---
+    has_tdiff = 'train_temporal_diff' in history and len(history.get('train_temporal_diff', [])) > 0
+    has_tvar = 'train_temporal_var' in history and len(history.get('train_temporal_var', [])) > 0
+    if has_tdiff or has_tvar:
+        if has_tdiff:
+            axes[2, 1].plot(history['train_temporal_diff'],
+                            label='Temporal Diff', color='tab:red')
+        if has_tvar:
+            tvar_abs = [abs(v) for v in history['train_temporal_var']]
+            axes[2, 1].plot(tvar_abs,
+                            label='Temporal Var (|v|, negative=reward)', color='tab:purple')
+        axes[2, 1].set_xlabel('Epoch')
+        axes[2, 1].set_ylabel('Loss')
+        axes[2, 1].set_title('Temporal Terms')
+        axes[2, 1].legend(fontsize=8)
+        axes[2, 1].grid(True, alpha=0.3)
+
+    # --- (2,2) Extreme terms ---
+    has_extreme = 'train_extreme' in history and len(history.get('train_extreme', [])) > 0
+    has_asymmetric = 'train_asymmetric' in history and len(history.get('train_asymmetric', [])) > 0
+    if has_extreme or has_asymmetric:
+        if has_extreme:
+            axes[2, 2].plot(history['train_extreme'],
+                            label='Extreme (WeightedMAE)', color='tab:green')
+        if has_asymmetric:
+            axes[2, 2].plot(history['train_asymmetric'],
+                            label='Asymmetric', color='tab:brown')
+        axes[2, 2].set_xlabel('Epoch')
+        axes[2, 2].set_ylabel('Loss')
+        axes[2, 2].set_title('Extreme Terms')
+        axes[2, 2].legend(fontsize=8)
+        axes[2, 2].grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
