@@ -37,9 +37,18 @@ The prediction pipeline must run reliably on CUDA, MPS, and CPU without silent f
 - ✓ Graceful shutdown with emergency checkpoint on Ctrl+C — v2.0
 - ✓ Test coverage for all modified modules (88 tests) — v2.0
 
-### Active
+## Current Milestone: v3.0 Temporal Dynamics & Flare Detection
 
-(None — next milestone requirements to be defined)
+**Goal:** Transform the model from near-persistence predictions into a genuine temporal forecaster with strong flare detection, leveraging increased compute for larger architecture.
+
+**Target features:**
+- Temporal dynamics overhaul (temporal difference loss, temporal weighting, delta head normalization, eliminate teacher forcing)
+- Extreme region focus (fix WeightedMAE, asymmetric loss, flare-sequence oversampling, increase extreme_weight)
+- Model strength increase (channels [32, 64, 128], kernel_size 5, spatial attention gate, temporal attention, MC dropout)
+- Comprehensive evaluation metrics (CSI, HSS, persistence baseline, SSIM, per-timestep logging in training loop)
+- Training policy improvements (cosine LR, balanced augmentation, progressive temporal curriculum)
+
+### Active
 
 ### Out of Scope
 
@@ -83,4 +92,4 @@ Known quirk: predictor forward() applies preprocess twice when downsample_input=
 | Index multiplication for augmentation | Deterministic, no random state issues across workers | ✓ Good |
 
 ---
-*Last updated: 2026-02-04 after v2.0 milestone*
+*Last updated: 2026-03-07 after v3.0 milestone start*
