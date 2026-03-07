@@ -38,16 +38,9 @@ created: 2026-03-07
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 07-01-01 | 01 | 0 | ALL | scaffold | `python -m pytest tests/test_metrics.py -x -q` | No — Wave 0 | pending |
-| 07-02-01 | 02 | 1 | EVAL-01 | unit | `python -m pytest tests/test_metrics.py::test_per_timestep_mae_rmse_correlation -x` | No — Wave 0 | pending |
-| 07-02-02 | 02 | 1 | EVAL-02 | unit | `python -m pytest tests/test_metrics.py::test_csi_computation -x` | No — Wave 0 | pending |
-| 07-02-03 | 02 | 1 | EVAL-03 | unit | `python -m pytest tests/test_metrics.py::test_hss_computation -x` | No — Wave 0 | pending |
-| 07-02-04 | 02 | 1 | EVAL-04 | unit | `python -m pytest tests/test_metrics.py::test_persistence_baseline -x` | No — Wave 0 | pending |
-| 07-02-05 | 02 | 1 | EVAL-05 | unit | `python -m pytest tests/test_metrics.py::test_standalone_ssim -x` | No — Wave 0 | pending |
-| 07-02-06 | 02 | 1 | EVAL-06 | unit | `python -m pytest tests/test_metrics.py::test_peak_flux_error -x` | No — Wave 0 | pending |
-| 07-02-07 | 02 | 1 | EVAL-07 | unit | `python -m pytest tests/test_metrics.py::test_temporal_variation_ratio -x` | No — Wave 0 | pending |
-| 07-03-01 | 03 | 2 | ALL | integration | `python -m pytest tests/test_metrics.py::test_validate_returns_dict -x` | No — Wave 0 | pending |
-| 07-03-02 | 03 | 2 | ALL | integration | `python -m pytest tests/test_metrics.py::test_history_new_keys -x` | No — Wave 0 | pending |
+| 07-01-F1 | 01 | 1 | EVAL-01..07 | TDD unit | `python -m pytest tests/test_metrics.py -v -x` | Created by Plan 01 | pending |
+| 07-02-T1 | 02 | 2 | ALL | integration | `python -m pytest tests/test_metrics.py -v -x && python -m pytest tests/ -x -q` | Created by Plan 01 | pending |
+| 07-02-T2 | 02 | 2 | ALL | config+viz | `python -m pytest tests/ -x -q` | Created by Plan 01 | pending |
 
 *Status: pending / green / red / flaky*
 
