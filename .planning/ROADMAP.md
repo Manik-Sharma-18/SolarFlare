@@ -12,82 +12,96 @@ SolarFlare v3.0 transforms the model from near-persistence predictions (variatio
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-<details>
-<summary>v2.0 Stabilization & Cross-Platform (Phases 1-6) - SHIPPED 2026-02-04</summary>
+v2.0 Stabilization & Cross-Platform (Phases 1-6) - SHIPPED 2026-02-04
 
 See .planning/MILESTONES.md for v2.0 details.
 
-</details>
+
 
 ### v3.0 Temporal Dynamics & Flare Detection
 
-- [ ] **Phase 7: Evaluation Metrics** - Instrument CSI, HSS, persistence baseline, and per-timestep metrics into the validation loop
-- [ ] **Phase 8: Loss Function Overhaul** - Add temporal difference loss, temporal weighting, variation penalty, fix WeightedMAE, and asymmetric extreme penalty
-- [ ] **Phase 9: Training Policy** - Enable cosine LR, balanced augmentation, eliminate teacher forcing, and add class-imbalanced sampling
-- [ ] **Phase 10: Architecture Scaling** - SA-ConvLSTM cells, spatial/temporal attention, wider channels, kernel 5, MC dropout, delta head scaling
-- [ ] **Phase 11: Integration Testing & Validation** - Full training run with all v3.0 features, diagnostic comparison against v2.0 baseline
+- **Phase 7: Evaluation Metrics** - Instrument CSI, HSS, persistence baseline, and per-timestep metrics into the validation loop
+- **Phase 8: Loss Function Overhaul** - Add temporal difference loss, temporal weighting, variation penalty, fix WeightedMAE, and asymmetric extreme penalty
+- **Phase 9: Training Policy** - Enable cosine LR, balanced augmentation, eliminate teacher forcing, and add class-imbalanced sampling
+- **Phase 10: Architecture Scaling** - SA-ConvLSTM cells, spatial/temporal attention, wider channels, kernel 5, MC dropout, delta head scaling
+- **Phase 11: Integration Testing & Validation** - Full training run with all v3.0 features, diagnostic comparison against v2.0 baseline
 
 ## Phase Details
 
 ### Phase 7: Evaluation Metrics
+
 **Goal**: Every training run produces comprehensive, per-timestep evaluation metrics that quantify temporal dynamics, flare detection skill, and improvement over persistence baseline
 **Depends on**: Nothing (first v3.0 phase; builds on existing v2.0 training loop)
 **Requirements**: EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05, EVAL-06, EVAL-07
 **Success Criteria** (what must be TRUE):
-  1. After a validation epoch, per-timestep MAE, RMSE, and correlation are logged for each output frame
-  2. CSI and HSS appear in epoch logs computed against the extreme threshold, giving a single number for flare detection quality
-  3. Persistence baseline MAE is computed each epoch, and skill-over-persistence percentage is reported alongside model MAE
-  4. SSIM is logged as a standalone validation metric (not buried inside composite loss), and peak flux error and temporal variation ratio are reported per epoch
-**Plans**: TBD
+
+1. After a validation epoch, per-timestep MAE, RMSE, and correlation are logged for each output frame
+2. CSI and HSS appear in epoch logs computed against the extreme threshold, giving a single number for flare detection quality
+3. Persistence baseline MAE is computed each epoch, and skill-over-persistence percentage is reported alongside model MAE
+4. SSIM is logged as a standalone validation metric (not buried inside composite loss), and peak flux error and temporal variation ratio are reported per epoch
+**Plans:** 2 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — TDD: Implement all metric computation functions (CSI, HSS, persistence, SSIM, peak flux, temporal variation, per-timestep RMSE/correlation) with tests
+- [ ] 07-02-PLAN.md — Wire metrics into validate(), update callers, add evaluation config and metric visualization
 
 ### Phase 8: Loss Function Overhaul
+
 **Goal**: The loss function directly penalizes temporal stationarity, rewards capturing frame-to-frame dynamics, and applies stronger penalties for missing extreme regions
 **Depends on**: Phase 7 (metrics must exist to measure loss changes)
 **Requirements**: LOSS-01, LOSS-02, LOSS-03, LOSS-04, LOSS-05, LOSS-06, LOSS-07
 **Success Criteria** (what must be TRUE):
-  1. Temporal difference loss is active: the model is penalized for incorrect frame-to-frame changes (L1 on predicted deltas vs target deltas)
-  2. Later timesteps receive higher loss weight (configurable per-timestep weights default to [1.0, 1.5, 2.0, 2.5]), visible in per-component loss logs
-  3. WeightedMAE uses an absolute extreme threshold (not per-sample relative normalization), and asymmetric loss applies a configurable alpha penalty for underestimating extreme regions
-  4. Each loss component (L1, MS-SSIM, WeightedMAE, temporal_diff, temporal_var, asymmetric) is logged individually during training, not just the total
-  5. Temporal variation penalty encourages the model to produce frame-to-frame variation, with a configurable lambda weight
+
+1. Temporal difference loss is active: the model is penalized for incorrect frame-to-frame changes (L1 on predicted deltas vs target deltas)
+2. Later timesteps receive higher loss weight (configurable per-timestep weights default to [1.0, 1.5, 2.0, 2.5]), visible in per-component loss logs
+3. WeightedMAE uses an absolute extreme threshold (not per-sample relative normalization), and asymmetric loss applies a configurable alpha penalty for underestimating extreme regions
+4. Each loss component (L1, MS-SSIM, WeightedMAE, temporal_diff, temporal_var, asymmetric) is logged individually during training, not just the total
+5. Temporal variation penalty encourages the model to produce frame-to-frame variation, with a configurable lambda weight
 **Plans**: TBD
 
 ### Phase 9: Training Policy
+
 **Goal**: Training configuration maximizes the effectiveness of the new loss function through better learning rate scheduling, data exposure, and honest autoregressive predictions
 **Depends on**: Phase 8 (loss function must be stable before changing training regime)
 **Requirements**: TRAIN-01, TRAIN-02, TRAIN-03, TRAIN-04, TRAIN-05
 **Success Criteria** (what must be TRUE):
-  1. Cosine annealing LR scheduler is active with eta_min=1e-6, and the learning rate curve is visible in training logs
-  2. Data augmentation includes both horizontal and vertical flips (3x effective dataset size), and flare-containing sequences are oversampled 3x via WeightedRandomSampler
-  3. Teacher forcing is eliminated (tf_start=0.0): the model produces all output frames autoregressively from step 1
-  4. Training runs for 50+ epochs with the cosine schedule, and the model converges (validation loss stabilizes or decreases)
+
+1. Cosine annealing LR scheduler is active with eta_min=1e-6, and the learning rate curve is visible in training logs
+2. Data augmentation includes both horizontal and vertical flips (3x effective dataset size), and flare-containing sequences are oversampled 3x via WeightedRandomSampler
+3. Teacher forcing is eliminated (tf_start=0.0): the model produces all output frames autoregressively from step 1
+4. Training runs for 50+ epochs with the cosine schedule, and the model converges (validation loss stabilizes or decreases)
 **Plans**: TBD
 
 ### Phase 10: Architecture Scaling
+
 **Goal**: The model has sufficient representational capacity -- through attention mechanisms, wider channels, and larger kernels -- to exploit the improved loss and training regime
 **Depends on**: Phase 9 (training policy must be stable before increasing model capacity)
 **Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07
 **Success Criteria** (what must be TRUE):
-  1. SA-ConvLSTM cells with self-attention memory replace standard ConvLSTM cells, and the encoder stores all hidden states for temporal attention access
-  2. Spatial attention gates on skip connections learn to focus on active regions (attention weights are not collapsed to uniform or zero)
-  3. Model uses channels [32, 64, 128] and kernel size 5 (both configurable), with a learned delta head scaling parameter
-  4. MC Dropout at 0.15 is active during training for regularization, and the model trains and evaluates without errors on CUDA, MPS, and CPU
+
+1. SA-ConvLSTM cells with self-attention memory replace standard ConvLSTM cells, and the encoder stores all hidden states for temporal attention access
+2. Spatial attention gates on skip connections learn to focus on active regions (attention weights are not collapsed to uniform or zero)
+3. Model uses channels [32, 64, 128] and kernel size 5 (both configurable), with a learned delta head scaling parameter
+4. MC Dropout at 0.15 is active during training for regularization, and the model trains and evaluates without errors on CUDA, MPS, and CPU
 **Plans**: TBD
 
 ### Phase 11: Integration Testing & Validation
+
 **Goal**: All v3.0 features work together in a full training run and produce measurably better predictions than the v2.0 baseline
 **Depends on**: Phase 10 (all feature phases must be complete)
 **Requirements**: None (validation phase -- validates all prior requirements end-to-end)
 **Success Criteria** (what must be TRUE):
-  1. A full training run (50+ epochs) completes without errors, crashes, or NaN losses with all v3.0 features enabled simultaneously
-  2. Temporal variation ratio is significantly higher than v2.0 baseline (0.056), indicating the model produces genuine frame-to-frame dynamics
-  3. CSI for flare detection is significantly higher than v2.0 baseline (0.05), and skill-over-persistence exceeds the v2.0 margin of 3-9%
-  4. A diagnostic comparison report documents v3.0 vs v2.0 on all evaluation metrics (MAE, RMSE, CSI, HSS, SSIM, persistence skill, temporal variation ratio, peak flux error)
+
+1. A full training run (50+ epochs) completes without errors, crashes, or NaN losses with all v3.0 features enabled simultaneously
+2. Temporal variation ratio is significantly higher than v2.0 baseline (0.056), indicating the model produces genuine frame-to-frame dynamics
+3. CSI for flare detection is significantly higher than v2.0 baseline (0.05), and skill-over-persistence exceeds the v2.0 margin of 3-9%
+4. A diagnostic comparison report documents v3.0 vs v2.0 on all evaluation metrics (MAE, RMSE, CSI, HSS, SSIM, persistence skill, temporal variation ratio, peak flux error)
 **Plans**: TBD
 
 ## Progress
@@ -95,10 +109,12 @@ See .planning/MILESTONES.md for v2.0 details.
 **Execution Order:**
 Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 7. Evaluation Metrics | 0/TBD | Not started | - |
-| 8. Loss Function Overhaul | 0/TBD | Not started | - |
-| 9. Training Policy | 0/TBD | Not started | - |
-| 10. Architecture Scaling | 0/TBD | Not started | - |
-| 11. Integration Testing | 0/TBD | Not started | - |
+
+| Phase                     | Plans Complete | Status      | Completed |
+| ------------------------- | -------------- | ----------- | --------- |
+| 7. Evaluation Metrics     | 0/2            | Planning    | -         |
+| 8. Loss Function Overhaul | 0/TBD          | Not started | -         |
+| 9. Training Policy        | 0/TBD          | Not started | -         |
+| 10. Architecture Scaling  | 0/TBD          | Not started | -         |
+| 11. Integration Testing   | 0/TBD          | Not started | -         |
+
