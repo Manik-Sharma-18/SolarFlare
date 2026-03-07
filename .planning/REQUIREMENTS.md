@@ -17,11 +17,11 @@
 
 ### Loss Function
 
-- [ ] **LOSS-01**: Temporal difference loss term added: L1(pred[t+1]-pred[t], target[t+1]-target[t])
-- [ ] **LOSS-02**: Per-timestep temporal weighting applied to loss (configurable weights, default [1.0, 1.5, 2.0, 2.5])
-- [ ] **LOSS-03**: Temporal variation penalty added: -lambda * mean(|pred[t+1]-pred[t]|) with configurable lambda
-- [ ] **LOSS-04**: WeightedMAE fixed to use absolute extreme threshold instead of per-sample relative normalization
-- [ ] **LOSS-05**: Asymmetric loss penalty for underestimation of extreme regions (configurable alpha, applied above threshold only)
+- [x] **LOSS-01**: Temporal difference loss term added: L1(pred[t+1]-pred[t], target[t+1]-target[t])
+- [x] **LOSS-02**: Per-timestep temporal weighting applied to loss (configurable weights, default [1.0, 1.5, 2.0, 2.5])
+- [x] **LOSS-03**: Temporal variation penalty added: -lambda * mean(|pred[t+1]-pred[t]|) with configurable lambda
+- [x] **LOSS-04**: WeightedMAE fixed to use absolute extreme threshold instead of per-sample relative normalization
+- [x] **LOSS-05**: Asymmetric loss penalty for underestimation of extreme regions (configurable alpha, applied above threshold only)
 - [ ] **LOSS-06**: Extreme weight increased to 3.0+ in default config
 - [ ] **LOSS-07**: Each loss component logged separately during training (not just total)
 
@@ -78,11 +78,11 @@
 | EVAL-05 | Phase 7 | Complete |
 | EVAL-06 | Phase 7 | Complete |
 | EVAL-07 | Phase 7 | Complete |
-| LOSS-01 | Phase 8 | Pending |
-| LOSS-02 | Phase 8 | Pending |
-| LOSS-03 | Phase 8 | Pending |
-| LOSS-04 | Phase 8 | Pending |
-| LOSS-05 | Phase 8 | Pending |
+| LOSS-01 | Phase 8 | Complete |
+| LOSS-02 | Phase 8 | Complete |
+| LOSS-03 | Phase 8 | Complete |
+| LOSS-04 | Phase 8 | Complete |
+| LOSS-05 | Phase 8 | Complete |
 | LOSS-06 | Phase 8 | Pending |
 | LOSS-07 | Phase 8 | Pending |
 | TRAIN-01 | Phase 9 | Pending |

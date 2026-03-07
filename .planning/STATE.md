@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-03-07T19:13:04.895Z"
-last_activity: 2026-03-07 — Completed 07-02 training loop metrics integration
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-03-07T19:34:59.404Z"
+last_activity: 2026-03-08 — Completed 08-01 loss components (TDD)
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 20
+  total_plans: 5
+  completed_plans: 3
+  percent: 90
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Transform the model from near-persistence predictions into a genuine temporal forecaster with strong flare detection
-**Current focus:** Phase 7 - Evaluation Metrics
+**Current focus:** Phase 8 - Loss Function Overhaul
 
 ## Current Position
 
-Phase: 7 of 11 (Evaluation Metrics) -- COMPLETE
-Plan: 2 of 2 in current phase (all plans complete)
+Phase: 8 of 11 (Loss Function Overhaul)
+Plan: 1 of 3 in current phase (08-01 complete)
 Status: Executing
-Last activity: 2026-03-07 — Completed 07-02 training loop metrics integration
+Last activity: 2026-03-08 — Completed 08-01 loss components (TDD)
 
-Progress: [██░░░░░░░░] 20%
+Progress: [█████████░] 90%
 
 ## Accumulated Context
 
@@ -44,6 +44,9 @@ See PROJECT.md Key Decisions table for full history.
 - [07-01]: All metric functions pure/stateless; contingency table returns Python ints for direct CSI/HSS formula use
 - [Phase 07]: validate() returns dict instead of tuple; contingency tables accumulated across all batches before CSI/HSS
 - [Phase 07]: Evaluation config section optional with defaults (threshold=0.3456, verbose=false); per-timestep breakdown only at final epoch
+- [Phase 08-01]: Used same threshold (0.3456) for loss as evaluation -- consistent definition of extreme
+- [Phase 08-01]: WeightedMAELoss default extreme_weight changed from 2.0 to 3.0 per LOSS-06 spec
+- [Phase 08-01]: T<=1 edge case returns 0.0 tensor for temporal functions (graceful degradation)
 
 ### Pending Todos
 
@@ -64,6 +67,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-07T19:13:04.893Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-loss-function-overhaul/08-CONTEXT.md
+Last session: 2026-03-07T19:34:59.403Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
