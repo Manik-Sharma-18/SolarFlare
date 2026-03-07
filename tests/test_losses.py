@@ -439,16 +439,20 @@ class TestCompositeLoss:
         assert torch.isfinite(val), f"CompositeLoss not finite: {val.item()}"
 
     def test_composite_loss_components(self):
-        """return_components=True should return dict with expected keys."""
+        """return_components=True should return dict with all 8 keys."""
         loss_fn = CompositeLoss(use_ms_ssim=False)
         pred = torch.rand(1, 1, 32, 32)
         target = torch.rand(1, 1, 32, 32)
         result = loss_fn(pred, target, return_components=True)
 
         assert isinstance(result, dict)
-        expected_keys = {"total", "l1", "ssim", "ssim_val", "extreme"}
+        expected_keys = {
+            "total", "l1", "ssim", "ssim_val", "extreme",
+            "temporal_diff", "temporal_var", "asymmetric",
+        }
         assert set(result.keys()) == expected_keys, (
-            f"Missing keys: {expected_keys - set(result.keys())}"
+            f"Expected keys {expected_keys}, got {set(result.keys())}. "
+            f"Missing: {expected_keys - set(result.keys())}"
         )
         for key, val in result.items():
             assert isinstance(val, torch.Tensor), f"{key} is not a tensor"
@@ -461,6 +465,82 @@ class TestCompositeLoss:
         val = loss_fn(pred, target)
         assert torch.isfinite(val), f"5D composite loss not finite: {val.item()}"
         assert val.dim() == 0
+
+    def test_composite_loss_5d_temporal_terms(self):
+        """5D input produces non-zero temporal_diff and temporal_var components."""
+        loss_fn = CompositeLoss(use_ms_ssim=False)
+
+        # Create pred and target with DIFFERENT frame-to-frame dynamics
+        pred = torch.zeros(1, 1, 4, 32, 32)
+        target = torch.zeros(1, 1, 4, 32, 32)
+
+        # Pred: linear changes (constant diffs)
+        for t in range(4):
+            pred[:, :, t, :, :] = 0.1 * t
+
+        # Target: quadratic changes (increasing diffs)
+        for t in range(4):
+            target[:, :, t, :, :] = 0.1 * t * t
+
+        result = loss_fn(pred, target, return_components=True)
+
+        # temporal_diff should be > 0 (different dynamics)
+        assert result["temporal_diff"].item() > 0, (
+            f"temporal_diff should be > 0 for different dynamics, "
+            f"got {result['temporal_diff'].item()}"
+        )
+
+        # temporal_var should be < 0 (negative penalty)
+        assert result["temporal_var"].item() < 0, (
+            f"temporal_var should be < 0 (negative penalty), "
+            f"got {result['temporal_var'].item()}"
+        )
+
+    def test_composite_loss_4d_backward_compat(self):
+        """4D input still works, temporal terms are 0.0."""
+        loss_fn = CompositeLoss(use_ms_ssim=False)
+        pred = torch.rand(1, 1, 32, 32)
+        target = torch.rand(1, 1, 32, 32)
+        result = loss_fn(pred, target, return_components=True)
+
+        assert result["temporal_diff"].item() == 0.0, (
+            f"4D temporal_diff should be 0.0, got {result['temporal_diff'].item()}"
+        )
+        assert result["temporal_var"].item() == 0.0, (
+            f"4D temporal_var should be 0.0, got {result['temporal_var'].item()}"
+        )
+
+    def test_composite_loss_temporal_weights_applied(self):
+        """With per-timestep weights, later timesteps affect loss more than earlier.
+
+        Two CompositeLoss instances: one with uniform weights [1,1,1,1],
+        one with [1,1.5,2,2.5]. Feed same 5D input where error concentrates
+        at last timestep. Second instance should have higher total loss.
+        """
+        # Create input where error is concentrated at the last timestep
+        pred = torch.zeros(1, 1, 4, 32, 32)
+        target = torch.zeros(1, 1, 4, 32, 32)
+
+        # Only the last timestep has significant error
+        target[:, :, 3, :, :] = 0.5  # large target at last timestep
+        # pred stays zero everywhere -> error concentrated at t=3
+
+        loss_uniform = CompositeLoss(
+            use_ms_ssim=False,
+            temporal_weights=[1.0, 1.0, 1.0, 1.0],
+        )
+        loss_ramped = CompositeLoss(
+            use_ms_ssim=False,
+            temporal_weights=[1.0, 1.5, 2.0, 2.5],
+        )
+
+        val_uniform = loss_uniform(pred, target)
+        val_ramped = loss_ramped(pred, target)
+
+        assert val_ramped.item() > val_uniform.item(), (
+            f"Ramped weights should produce higher loss when error is at last timestep: "
+            f"ramped={val_ramped.item():.6f} vs uniform={val_uniform.item():.6f}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +562,38 @@ class TestGetLossFunction:
         """type='weighted' should return WeightedMAELoss."""
         fn = get_loss_function({"type": "weighted"})
         assert isinstance(fn, WeightedMAELoss)
+
+    def test_get_loss_function_composite_new_params(self):
+        """Factory reads temporal_diff_weight, temporal_var_lambda, asymmetric params from config."""
+        config = {
+            "type": "composite",
+            "l1_weight": 1.0,
+            "ssim_weight": 0.3,
+            "extreme_weight": 3.0,
+            "use_ms_ssim": False,
+            "temporal_diff_weight": 1.0,
+            "temporal_var_lambda": 0.1,
+            "asymmetric_weight": 0.5,
+            "asymmetric_alpha": 2.0,
+            "extreme_threshold": 0.3456,
+            "temporal_weights": [1.0, 1.5, 2.0, 2.5],
+        }
+        fn = get_loss_function(config)
+        assert isinstance(fn, CompositeLoss)
+
+        # Verify the new parameters were set correctly
+        assert fn.temporal_diff_weight == 1.0
+        assert fn.temporal_var_lambda == 0.1
+        assert fn.asymmetric_weight == 0.5
+        assert hasattr(fn, "asymmetric_extreme")
+        assert fn.temporal_weights == [1.0, 1.5, 2.0, 2.5]
+
+        # Verify it works end-to-end with 5D input
+        pred = torch.rand(1, 1, 4, 32, 32)
+        target = torch.rand(1, 1, 4, 32, 32)
+        result = fn(pred, target, return_components=True)
+        assert "temporal_diff" in result
+        assert "asymmetric" in result
 
     def test_get_loss_function_unknown_raises(self):
         """Unknown loss type should raise ValueError."""

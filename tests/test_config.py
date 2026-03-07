@@ -219,3 +219,36 @@ def test_evaluation_section_optional(base_config):
     # base_config has no evaluation key by default
     assert "evaluation" not in base_config
     validate_config(base_config)  # Should not raise
+
+
+# ------------------------------------------------------------------ #
+# Loss temporal/asymmetric config validation (Phase 8)
+# ------------------------------------------------------------------ #
+
+
+def test_loss_temporal_config_valid(base_config):
+    """New loss keys (temporal_diff_weight, temporal_var_lambda, etc.) pass validation."""
+    base_config["loss"] = {
+        "type": "composite",
+        "l1_weight": 1.0,
+        "ssim_weight": 0.3,
+        "extreme_weight": 3.0,
+        "temporal_diff_weight": 1.0,
+        "temporal_var_lambda": 0.1,
+        "temporal_weights": [1.0, 1.5, 2.0, 2.5],
+        "asymmetric_weight": 0.5,
+        "asymmetric_alpha": 2.0,
+        "extreme_threshold": 0.3456,
+    }
+    validate_config(base_config)  # Should not raise
+
+
+def test_loss_temporal_weights_wrong_type(base_config):
+    """Non-list temporal_weights raises ConfigValidationError."""
+    base_config["loss"] = {
+        "type": "composite",
+        "temporal_weights": "not_a_list",
+    }
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config(base_config)
+    assert any("temporal_weights" in e and "list" in e for e in exc_info.value.errors)
