@@ -226,6 +226,22 @@ def validate_config(config: dict) -> None:
             if ks <= 0 or ks % 2 == 0:
                 errors.append(f"'model.kernel_size' must be a positive odd int, got {ks}")
 
+        # v3.0 architecture features (optional, safe defaults)
+        for bool_key in ("use_sa_convlstm", "temporal_attention", "attention_gate"):
+            val = model.get(bool_key)
+            if val is not None and not isinstance(val, bool):
+                errors.append(
+                    f"'model.{bool_key}' must be a bool, got {type(val).__name__}: {val!r}"
+                )
+
+        dsi = model.get("delta_scale_init")
+        if dsi is not None:
+            if not isinstance(dsi, (int, float)):
+                errors.append(
+                    f"'model.delta_scale_init' must be a number, "
+                    f"got {type(dsi).__name__}: {dsi!r}"
+                )
+
     # ------------------------------------------------------------------ #
     # training section
     # ------------------------------------------------------------------ #

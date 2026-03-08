@@ -475,12 +475,27 @@ def train_model(
     loss_fn = get_loss_function(loss_config)
     loss_fn = loss_fn.to(device)
     
-    # Optimizer and scheduler
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=lr,
-        weight_decay=weight_decay
-    )
+    # Optimizer with parameter groups (exclude delta_scale from weight decay)
+    if hasattr(model, 'delta_scale') and model.delta_scale is not None:
+        decay_params = []
+        no_decay_params = []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name == 'delta_scale':
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+        optimizer = torch.optim.AdamW([
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': no_decay_params, 'weight_decay': 0.0},
+        ], lr=lr)
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
     
     # Create scheduler based on config
     scheduler_config = config.get('scheduler', {'type': 'cosine'})
@@ -542,6 +557,7 @@ def train_model(
         'train_temporal_diff': [],
         'train_temporal_var': [],
         'train_asymmetric': [],
+        'delta_scale': [],
     }
 
     # Resume from checkpoint if requested
@@ -664,6 +680,10 @@ def train_model(
             print(f"  Persistence Skill: {avg_persist_skill:.1f}%"
                   f" | Temporal Var Ratio: {val_metrics['temporal_variation_ratio']:.3f}")
 
+            # Log delta_scale value if it exists (ARCH-02 diagnostic)
+            if hasattr(model, 'delta_scale') and model.delta_scale is not None:
+                print(f"  delta_scale: {model.delta_scale.item():.4f}")
+
             # Per-timestep breakdown at final epoch or if verbose_metrics
             is_final_epoch = (epoch == epochs)
             if verbose_metrics or is_final_epoch:
@@ -713,6 +733,10 @@ def train_model(
             else:
                 for key in component_keys:
                     history[f'train_{key}'].append(0.0)
+
+            # Log delta_scale to history (ARCH-02)
+            if hasattr(model, 'delta_scale') and model.delta_scale is not None:
+                history['delta_scale'].append(model.delta_scale.item())
 
             # Free device caches between epochs (GPU/MPS memory)
             clear_device_cache(device)

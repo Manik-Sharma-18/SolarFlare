@@ -291,3 +291,40 @@ def test_flare_oversample_absent_no_warn(base_config, caplog):
     with caplog.at_level(logging.WARNING):
         validate_config(base_config)
     assert not any("flare_oversample_weight" in r.message for r in caplog.records)
+
+
+# ------------------------------------------------------------------ #
+# v3.0 model architecture config validation (Phase 10)
+# ------------------------------------------------------------------ #
+
+
+def test_v30_model_keys_accepted(base_config):
+    """v3.0 architecture keys (use_sa_convlstm, temporal_attention, etc.) pass validation."""
+    base_config["model"]["use_sa_convlstm"] = True
+    base_config["model"]["temporal_attention"] = True
+    base_config["model"]["attention_gate"] = True
+    base_config["model"]["delta_scale_init"] = 100.0
+    validate_config(base_config)  # Should not raise
+
+
+def test_v30_model_bool_key_wrong_type(base_config):
+    """Non-bool use_sa_convlstm raises ConfigValidationError."""
+    base_config["model"]["use_sa_convlstm"] = "yes"
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config(base_config)
+    assert any("use_sa_convlstm" in e and "bool" in e for e in exc_info.value.errors)
+
+
+def test_v30_delta_scale_init_wrong_type(base_config):
+    """Non-numeric delta_scale_init raises ConfigValidationError."""
+    base_config["model"]["delta_scale_init"] = "high"
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config(base_config)
+    assert any("delta_scale_init" in e and "number" in e for e in exc_info.value.errors)
+
+
+def test_v30_model_keys_absent_still_valid(base_config):
+    """Config without v3.0 keys still passes (they are optional with safe defaults)."""
+    # base_config has no v3.0 keys
+    assert "use_sa_convlstm" not in base_config["model"]
+    validate_config(base_config)  # Should not raise

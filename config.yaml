@@ -33,11 +33,16 @@ normalization:
 model:
   input_channels: 2       # 1 for single-channel, 2 for dual-channel (flux + extreme)
   output_channels: 1      # Output channels (typically 1 for flux prediction)
-  channels: [16, 32, 64]  # Channel progression: encoder1, encoder2, latent
-  kernel_size: 3          # Kernel size for ConvLSTM cells
+  channels: [32, 64, 128]  # ARCH-04: Channel progression (widened from [16, 32, 64])
+  kernel_size: 5          # ARCH-05: Kernel size (increased from 3)
   downsample_input: true  # Apply 2x spatial downsampling at input (saves VRAM)
   use_checkpointing: false # Gradient checkpointing (saves ~40% VRAM, ~20% slower)
-  dropout_rate: 0.0       # Dropout rate for MC Dropout uncertainty (0.0 = disabled)
+  dropout_rate: 0.15      # ARCH-06: MC Dropout for regularization (increased from 0.0)
+  # v3.0 architecture features
+  use_sa_convlstm: true    # ARCH-01: SA-ConvLSTM cells with Self-Attention Memory
+  delta_scale_init: 100.0  # ARCH-02: Learned delta head scaling (0.0 = disabled)
+  attention_gate: true     # ARCH-03: Spatial attention gates on skip connections
+  temporal_attention: true # ARCH-07: Temporal attention over encoder hidden states
 
 training:
   batch_size: 1           # Batch size (keep at 1 for large spatial dims)
