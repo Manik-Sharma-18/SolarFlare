@@ -242,7 +242,8 @@ def build_index(
     stride: int = 1,
     augmentation: str = "none",
     split: str = "train",
-) -> List[Tuple[int, int, int]]:
+    extreme_threshold: Optional[float] = None,
+) -> Tuple[List[Tuple[int, int, int]], List[bool]]:
     """Build a precomputed sample index for a given data split.
 
     For each file assigned to *split*, generates sliding-window start
@@ -250,6 +251,10 @@ def build_index(
     or ``"aggressive"`` **and** *split* is ``"train"``, each window is
     multiplied by the corresponding set of augmentation codes.  Validation
     and test splits always receive ``AUG_NONE`` only.
+
+    When *extreme_threshold* is provided, scans **output frames only** for
+    each window to detect extreme flux events (any pixel > threshold).
+    This enables flare-aware weighted sampling downstream.
 
     Args:
         file_paths: Ordered list of ``.npy`` file paths.
@@ -260,9 +265,14 @@ def build_index(
         stride: Step size between consecutive window starts.  Defaults to 1.
         augmentation: One of ``"none"``, ``"balanced"``, ``"aggressive"``.
         split: Split name to build the index for.
+        extreme_threshold: If provided, flag windows whose output frames
+            contain any pixel above this value.  ``None`` disables flare
+            detection (all flags ``False``).
 
     Returns:
-        List of ``(file_idx, window_start, aug_type)`` tuples.
+        ``(index, flare_flags)`` where *index* is a list of
+        ``(file_idx, window_start, aug_type)`` tuples and *flare_flags* is
+        a parallel list of booleans indicating extreme-event windows.
     """
     # Determine which augmentation codes to apply
     if split == "train" and augmentation == "balanced":
@@ -273,6 +283,7 @@ def build_index(
         aug_codes = [AUG_NONE]
 
     index: List[Tuple[int, int, int]] = []
+    flare_flags: List[bool] = []
 
     for file_idx in file_assignments.get(split, []):
         # Open briefly to read shape -- mmap so we only touch metadata
@@ -290,7 +301,18 @@ def build_index(
             continue
 
         for window_start in range(0, max_start, stride):
+            # Detect extreme values in OUTPUT frames only
+            if extreme_threshold is not None:
+                output_frames = mmap[
+                    window_start + t_in : window_start + t_in + t_out
+                ]
+                is_flare = bool(np.any(output_frames > extreme_threshold))
+            else:
+                is_flare = False
+
+            # Append one entry per augmentation code; all share same flare flag
             for aug in aug_codes:
                 index.append((file_idx, window_start, aug))
+                flare_flags.append(is_flare)
 
-    return index
+    return index, flare_flags

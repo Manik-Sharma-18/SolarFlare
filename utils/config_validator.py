@@ -385,6 +385,21 @@ def validate_config(config: dict) -> None:
             errors.append(f"'normalization.method' must be one of {valid_norm}, got '{nmethod}'")
 
     # ------------------------------------------------------------------ #
+    # Cross-check: flare_oversample_weight + augmentation
+    # ------------------------------------------------------------------ #
+    data_section = config.get("data", {})
+    if isinstance(data_section, dict):
+        fow = data_section.get("flare_oversample_weight")
+        aug_mode = data_section.get("augmentation", "none")
+        if isinstance(fow, (int, float)) and fow > 1.0:
+            if aug_mode == "none":
+                warnings.append(
+                    f"flare_oversample_weight is {fow} but augmentation is 'none'; "
+                    f"consider enabling augmentation ('balanced') to increase "
+                    f"diversity of oversampled flare sequences"
+                )
+
+    # ------------------------------------------------------------------ #
     # Cross-field validation (errors)
     # ------------------------------------------------------------------ #
     data = config.get("data", {})

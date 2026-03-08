@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.utils.data.dataloader import default_collate
 
 from .dataset import SolarFluxDataset, build_index
@@ -488,9 +488,10 @@ def load_and_prepare_data(
     extreme_threshold = norm_params.get('extreme_threshold', None) if dual_channel else None
 
     datasets_out = {}
+    split_flare_flags = {}
     for split_name in ("train", "val", "test"):
         aug = augmentation if split_name == "train" else "none"
-        index = build_index(
+        index, flare_flags = build_index(
             file_paths=cube_paths,
             file_assignments=file_assignments,
             t_in=t_in,
@@ -510,11 +511,13 @@ def load_and_prepare_data(
             norm_method=dataset_norm_method,
         )
         datasets_out[split_name] = ds
+        split_flare_flags[split_name] = flare_flags
 
     print("\nDataset splits (whole-file assignment):")
     for name in ("train", "val", "test"):
+        n_flare = sum(split_flare_flags[name])
         print(f"  {name.capitalize()}: {len(datasets_out[name])} samples "
-              f"({len(file_assignments[name])} files)")
+              f"({len(file_assignments[name])} files, {n_flare} flare sequences)")
 
     # ------------------------------------------------------------------
     # Metadata
@@ -532,6 +535,7 @@ def load_and_prepare_data(
         'seed': seed,
         'split_ratios': split_ratios,
         'file_assignments': {k: v for k, v in file_assignments.items()},
+        'train_flare_flags': split_flare_flags["train"],
     }
 
     return datasets_out["train"], datasets_out["val"], datasets_out["test"], metadata
@@ -629,9 +633,10 @@ def load_preprocessed_data(
 
     # Build index and datasets -- no on-the-fly normalization (already done)
     datasets_out = {}
+    split_flare_flags = {}
     for split_name in ("train", "val", "test"):
         aug = augmentation if split_name == "train" else "none"
-        index = build_index(
+        index, flare_flags = build_index(
             file_paths=cube_paths,
             file_assignments=file_assignments,
             t_in=t_in,
@@ -651,11 +656,13 @@ def load_preprocessed_data(
             norm_method=None,
         )
         datasets_out[split_name] = ds
+        split_flare_flags[split_name] = flare_flags
 
     print("\nDataset splits (whole-file assignment):")
     for name in ("train", "val", "test"):
+        n_flare = sum(split_flare_flags[name])
         print(f"  {name.capitalize()}: {len(datasets_out[name])} samples "
-              f"({len(file_assignments[name])} files)")
+              f"({len(file_assignments[name])} files, {n_flare} flare sequences)")
 
     # Update metadata with runtime info
     metadata['n_datasets'] = len(cube_paths)
@@ -668,6 +675,7 @@ def load_preprocessed_data(
     metadata['seed'] = seed
     metadata['split_ratios'] = split_ratios
     metadata['file_assignments'] = {k: v for k, v in file_assignments.items()}
+    metadata['train_flare_flags'] = split_flare_flags["train"]
 
     return datasets_out["train"], datasets_out["val"], datasets_out["test"], metadata
 
@@ -703,6 +711,24 @@ def _skip_none_collate(batch):
     return default_collate(batch)
 
 
+def _build_sampler_weights(
+    flare_flags: List[bool],
+    flare_oversample_weight: float,
+) -> List[float]:
+    """Build per-sample weights for :class:`WeightedRandomSampler`.
+
+    Args:
+        flare_flags: Boolean list parallel to the dataset index indicating
+            which samples contain extreme (flare) events.
+        flare_oversample_weight: Weight applied to flare samples.
+            Non-flare samples always get weight ``1.0``.
+
+    Returns:
+        List of per-sample weights with length ``len(flare_flags)``.
+    """
+    return [flare_oversample_weight if flag else 1.0 for flag in flare_flags]
+
+
 def create_dataloaders(
     train_dataset: SolarFluxDataset,
     val_dataset: SolarFluxDataset,
@@ -711,6 +737,8 @@ def create_dataloaders(
     num_workers: int = 0,
     device: torch.device = None,
     seed: int = 42,
+    train_flare_flags: Optional[List[bool]] = None,
+    flare_oversample_weight: float = 1.0,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create platform-aware DataLoaders from datasets.
 
@@ -721,6 +749,9 @@ def create_dataloaders(
     - Each worker is seeded via :func:`_seed_worker` for reproducibility.
     - A custom collate function filters out ``None`` samples.
     - ``persistent_workers=True`` when ``num_workers > 0``.
+    - When *train_flare_flags* is provided and *flare_oversample_weight* > 1.0,
+      a :class:`WeightedRandomSampler` replaces ``shuffle=True`` on the
+      training loader to oversample flare-containing sequences.
 
     Args:
         train_dataset: Training dataset.
@@ -730,6 +761,10 @@ def create_dataloaders(
         num_workers: Number of data-loading workers.
         device: Target device (used only for pin_memory decision).
         seed: Random seed for the generator.
+        train_flare_flags: Boolean flags parallel to train_dataset index
+            indicating flare sequences.  ``None`` disables oversampling.
+        flare_oversample_weight: Weight for flare samples in the sampler.
+            Values <= 1.0 disable the sampler (uses shuffle instead).
 
     Returns:
         ``(train_loader, val_loader, test_loader)``
@@ -759,7 +794,31 @@ def create_dataloaders(
         if mp_context is not None:
             common_kwargs["multiprocessing_context"] = mp_context
 
-    train_loader = DataLoader(train_dataset, shuffle=True, **common_kwargs)
+    # Weighted sampler for flare oversampling
+    use_sampler = (
+        train_flare_flags is not None
+        and flare_oversample_weight > 1.0
+    )
+
+    if use_sampler:
+        weights = _build_sampler_weights(train_flare_flags, flare_oversample_weight)
+        sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=len(weights),
+            replacement=True,
+            generator=g,
+        )
+        n_flare = sum(train_flare_flags)
+        logger.info(
+            "Flare oversampling enabled: %d/%d flare sequences, weight=%.1f",
+            n_flare, len(train_flare_flags), flare_oversample_weight,
+        )
+        train_loader = DataLoader(
+            train_dataset, shuffle=False, sampler=sampler, **common_kwargs
+        )
+    else:
+        train_loader = DataLoader(train_dataset, shuffle=True, **common_kwargs)
+
     val_loader = DataLoader(val_dataset, shuffle=False, **common_kwargs)
     test_loader = DataLoader(test_dataset, shuffle=False, **common_kwargs)
 
