@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-03-08T13:35:13.979Z"
-last_activity: 2026-03-08 — Completed 10-02 predictor integration with SA-ConvLSTM and attention
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-03-08T13:43:12.731Z"
+last_activity: 2026-03-08 — Completed 10-03 config infrastructure with v3.0 defaults and attention entropy logging
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 9
-  percent: 96
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 10 of 11 (Architecture Scaling)
-Plan: 2 of 3 in current phase (10-02 complete)
+Plan: 3 of 3 in current phase (10-03 complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 10-02 predictor integration with SA-ConvLSTM and attention
+Last activity: 2026-03-08 — Completed 10-03 config infrastructure with v3.0 defaults and attention entropy logging
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Accumulated Context
 
@@ -62,6 +62,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 10]: [Phase 10-02]: Pack encoder h3 states as tensor for checkpoint compatibility, unpack to list for temporal attention
 - [Phase 10]: [Phase 10-02]: nn.Dropout replaces nn.Dropout2d for 5D ConvLSTM outputs (PyTorch deprecation fix)
 - [Phase 10]: [Phase 10-02]: Temporal attention queries decoder hidden state h (not output tensor) for richer context
+- [Phase 10]: [Phase 10-03]: Channel attention entropy deferred to Phase 11 -- temporal entropy is the key overfitting diagnostic
+- [Phase 10]: [Phase 10-03]: Only delta_scale excluded from weight decay by name (not all biases) per RESEARCH.md
+- [Phase 10]: [Phase 10-03]: Forward hook on temporal_attn for entropy capture avoids modifying predictor API
 
 ### Pending Todos
 
@@ -82,6 +85,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T13:35:13.977Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-03-08T13:43:12.729Z
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
