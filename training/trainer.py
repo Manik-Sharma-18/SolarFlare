@@ -35,6 +35,24 @@ from .losses import get_loss_function, CompositeLoss
 logger = logging.getLogger(__name__)
 
 
+def _compute_attention_entropy(attn_weights: torch.Tensor, eps: float = 1e-8) -> float:
+    """Compute Shannon entropy of attention distribution.
+
+    Used as an overfitting diagnostic: collapsing attention (low entropy)
+    indicates the model fixates on a single timestep, which suggests
+    overfitting or failure to learn meaningful temporal patterns.
+
+    Args:
+        attn_weights: (B, T) attention probabilities (sum to 1 along last dim).
+
+    Returns:
+        Mean entropy across batch (scalar float).
+    """
+    log_attn = torch.log(attn_weights + eps)
+    entropy = -(attn_weights * log_attn).sum(dim=-1)  # (B,)
+    return entropy.mean().item()
+
+
 class NaNLossError(RuntimeError):
     """Raised when consecutive NaN/Inf losses exceed the configured threshold."""
     pass
@@ -236,6 +254,17 @@ def validate(
     if loss_fn is None:
         loss_fn = nn.L1Loss()
 
+    # Collect attention entropy if temporal attention is available (ARCH-07 diagnostic)
+    temporal_attn_entropies = []
+    _attn_hook_handle = None
+
+    if hasattr(model, 'temporal_attn') and hasattr(model, 'use_temporal_attention') and model.use_temporal_attention:
+        def _capture_attn_weights(module, input, output):
+            context, attn_weights = output
+            temporal_attn_entropies.append(_compute_attention_entropy(attn_weights))
+
+        _attn_hook_handle = model.temporal_attn.register_forward_hook(_capture_attn_weights)
+
     iterator = tqdm(dataloader, desc="Validating") if show_progress else dataloader
 
     with torch.no_grad():
@@ -328,6 +357,10 @@ def validate(
                 compute_temporal_variation_ratio(predictions, Y_target)
             )
 
+    # Remove attention hook (must be outside torch.no_grad context)
+    if _attn_hook_handle is not None:
+        _attn_hook_handle.remove()
+
     if nan_batches > 0:
         logger.warning(
             "Validation had %d NaN/Inf batches out of %d total.",
@@ -409,7 +442,7 @@ def validate(
                 compute_persistence_skill(model_mae, pers_mae)
             )
 
-    return {
+    metrics = {
         'val_loss': float(avg_loss),
         'val_mae_per_timestep': avg_mae_per_timestep,
         'val_rmse_per_timestep': avg_rmse_per_timestep,
@@ -427,6 +460,12 @@ def validate(
         'peak_flux_error_per_timestep': avg_peak_flux_error_per_timestep,
         'temporal_variation_ratio': avg_temporal_variation_ratio,
     }
+
+    # Add temporal attention entropy if captured (ARCH-07 diagnostic)
+    if temporal_attn_entropies:
+        metrics['temporal_attn_entropy'] = sum(temporal_attn_entropies) / len(temporal_attn_entropies)
+
+    return metrics
 
 
 def train_model(
@@ -558,6 +597,7 @@ def train_model(
         'train_temporal_var': [],
         'train_asymmetric': [],
         'delta_scale': [],
+        'temporal_attn_entropy': [],
     }
 
     # Resume from checkpoint if requested
@@ -684,6 +724,13 @@ def train_model(
             if hasattr(model, 'delta_scale') and model.delta_scale is not None:
                 print(f"  delta_scale: {model.delta_scale.item():.4f}")
 
+            # Log temporal attention entropy (ARCH-07 overfitting diagnostic)
+            if 'temporal_attn_entropy' in val_metrics:
+                import math
+                max_entropy = math.log(10)  # T_in=10, max entropy = ln(10) = 2.303
+                print(f"  Temporal attn entropy: {val_metrics['temporal_attn_entropy']:.3f} "
+                      f"(max: {max_entropy:.3f})")
+
             # Per-timestep breakdown at final epoch or if verbose_metrics
             is_final_epoch = (epoch == epochs)
             if verbose_metrics or is_final_epoch:
@@ -737,6 +784,10 @@ def train_model(
             # Log delta_scale to history (ARCH-02)
             if hasattr(model, 'delta_scale') and model.delta_scale is not None:
                 history['delta_scale'].append(model.delta_scale.item())
+
+            # Log temporal attention entropy to history (ARCH-07)
+            if 'temporal_attn_entropy' in val_metrics:
+                history['temporal_attn_entropy'].append(val_metrics['temporal_attn_entropy'])
 
             # Free device caches between epochs (GPU/MPS memory)
             clear_device_cache(device)
