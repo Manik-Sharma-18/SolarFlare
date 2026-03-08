@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-03-08T11:46:00.000Z"
-last_activity: 2026-03-08 — Completed 09-01 flare-aware weighted sampling (TDD)
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-03-08T11:53:32.365Z"
+last_activity: 2026-03-08 — Completed 09-02 v3.0 training policy defaults
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 9 of 11 (Training Policy)
-Plan: 1 of 2 in current phase (09-01 complete)
+Plan: 2 of 2 in current phase (09-02 complete, phase complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 09-01 flare-aware weighted sampling (TDD)
+Last activity: 2026-03-08 — Completed 09-02 v3.0 training policy defaults
 
-Progress: [████████░░] 86%
+Progress: [██████████] 100%
 
 ## Accumulated Context
 
@@ -55,6 +55,7 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 09-01]: Flare detection scans output frames only (not input) -- oversamples what model needs to predict
 - [Phase 09-01]: Sampler uses replacement=True with num_samples=len(weights) to maintain epoch length
 - [Phase 09-01]: Flare threshold sourced from evaluation.extreme_threshold (0.3456) when oversampling enabled
+- [Phase 09-02]: Plan 01 already wired flare flags and oversample weight through main.py; Plan 02 added config defaults and diagnostic logging only
 
 ### Pending Todos
 
@@ -75,6 +76,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T11:46:00.000Z
-Stopped at: Completed 09-01-PLAN.md
-Resume file: .planning/phases/09-training-policy/09-01-SUMMARY.md
+Last session: 2026-03-08T11:53:32.363Z
+Stopped at: Completed 09-02-PLAN.md
+Resume file: None
