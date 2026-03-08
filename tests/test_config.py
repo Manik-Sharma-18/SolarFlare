@@ -252,3 +252,42 @@ def test_loss_temporal_weights_wrong_type(base_config):
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(base_config)
     assert any("temporal_weights" in e and "list" in e for e in exc_info.value.errors)
+
+
+# ------------------------------------------------------------------ #
+# Flare oversample config cross-check (Phase 9, TRAIN-04)
+# ------------------------------------------------------------------ #
+
+
+def test_flare_oversample_no_augmentation_warns(base_config, caplog):
+    """flare_oversample_weight > 1.0 + augmentation='none' logs warning."""
+    import logging
+    base_config["data"]["flare_oversample_weight"] = 3.0
+    base_config["data"]["augmentation"] = "none"
+    with caplog.at_level(logging.WARNING):
+        validate_config(base_config)
+    assert any("flare_oversample_weight" in r.message for r in caplog.records), (
+        "Expected warning about flare_oversample_weight + no augmentation"
+    )
+
+
+def test_flare_oversample_with_augmentation_no_warn(base_config, caplog):
+    """flare_oversample_weight > 1.0 + augmentation='balanced' -> no warning."""
+    import logging
+    base_config["data"]["flare_oversample_weight"] = 3.0
+    base_config["data"]["augmentation"] = "balanced"
+    with caplog.at_level(logging.WARNING):
+        validate_config(base_config)
+    assert not any("flare_oversample_weight" in r.message for r in caplog.records), (
+        "Should not warn when augmentation is enabled"
+    )
+
+
+def test_flare_oversample_absent_no_warn(base_config, caplog):
+    """No flare_oversample_weight in config -> no warning."""
+    import logging
+    # Make sure key is not present
+    base_config["data"].pop("flare_oversample_weight", None)
+    with caplog.at_level(logging.WARNING):
+        validate_config(base_config)
+    assert not any("flare_oversample_weight" in r.message for r in caplog.records)
