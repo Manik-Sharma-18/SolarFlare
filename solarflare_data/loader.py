@@ -352,6 +352,7 @@ def load_and_prepare_data(
     dual_channel: bool = False,
     failure_threshold: float = 0.1,
     seed: int = 42,
+    flare_extreme_threshold: Optional[float] = None,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
     Load raw .npy files and create train/val/test datasets with whole-file splitting.
@@ -499,6 +500,7 @@ def load_and_prepare_data(
             stride=stride,
             augmentation=aug,
             split=split_name,
+            extreme_threshold=flare_extreme_threshold,
         )
         ds = SolarFluxDataset(
             file_paths=cube_paths,
@@ -551,6 +553,7 @@ def load_preprocessed_data(
     dual_channel: bool = False,
     failure_threshold: float = 0.1,
     seed: int = 42,
+    flare_extreme_threshold: Optional[float] = None,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
     Load preprocessed cube files for fast training with whole-file splitting.
@@ -644,6 +647,7 @@ def load_preprocessed_data(
             stride=stride,
             augmentation=aug,
             split=split_name,
+            extreme_threshold=flare_extreme_threshold,
         )
         ds = SolarFluxDataset(
             file_paths=cube_paths,

@@ -79,6 +79,14 @@ def run_training(config: dict):
     num_workers = config['data'].get('num_workers', 0)
     seed = config.get('seed', 42)
 
+    # Flare detection threshold (used by build_index for oversampling)
+    flare_oversample_weight = config['data'].get('flare_oversample_weight', 1.0)
+    flare_extreme_threshold = (
+        config.get('evaluation', {}).get('extreme_threshold', 0.3456)
+        if flare_oversample_weight > 1.0
+        else None
+    )
+
     if use_preprocessed:
         # Fast loading from preprocessed cubes
         train_dataset, val_dataset, test_dataset, metadata = load_preprocessed_data(
@@ -91,6 +99,7 @@ def run_training(config: dict):
             dual_channel=dual_channel,
             failure_threshold=failure_threshold,
             seed=seed,
+            flare_extreme_threshold=flare_extreme_threshold,
         )
     else:
         # Load from raw structured arrays (slower)
@@ -106,15 +115,19 @@ def run_training(config: dict):
             dual_channel=dual_channel,
             failure_threshold=failure_threshold,
             seed=seed,
+            flare_extreme_threshold=flare_extreme_threshold,
         )
 
-    # Create dataloaders
+    # Create dataloaders (with optional flare oversampling)
+    train_flare_flags = metadata.get('train_flare_flags')
     train_loader, val_loader, test_loader = create_dataloaders(
         train_dataset, val_dataset, test_dataset,
         batch_size=config['training']['batch_size'],
         num_workers=num_workers,
         device=device,
         seed=seed,
+        train_flare_flags=train_flare_flags,
+        flare_oversample_weight=flare_oversample_weight,
     )
     
     # Save metadata
