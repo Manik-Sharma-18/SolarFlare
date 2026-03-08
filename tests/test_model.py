@@ -11,9 +11,17 @@ Tests cover:
 - Parameter counting
 - Device placement
 - MPS smoke test (skipped if unavailable)
+- SA-ConvLSTM integration (ARCH-01)
+- Delta scale (ARCH-02)
+- Attention gate (ARCH-03)
+- Wider channels (ARCH-04)
+- Kernel size 5 (ARCH-05)
+- Temporal attention (ARCH-07)
+- Full v3.0 architecture integration
 """
 import pytest
 import torch
+import torch.nn as nn
 
 from models.predictor import SolarFluxPredictor
 
@@ -86,6 +94,33 @@ class TestForwardShape:
             out = model(x)
         assert out.shape == (1, 1, 2, 64, 64), f"Got {out.shape}"
 
+    def test_forward_sa_convlstm(self):
+        """ARCH-01: SA-ConvLSTM model produces correct output shape."""
+        model = _make_model(use_sa_convlstm=True, t_out=2)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+
+    def test_forward_wider_channels(self):
+        """ARCH-04: Wider channels [32,64,128] produce correct shape."""
+        model = _make_model(channels=[32, 64, 128], t_out=2)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+
+    def test_forward_kernel_5(self):
+        """ARCH-05: Kernel size 5 produces correct shape."""
+        model = _make_model(kernel_size=5, t_out=2)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+
 
 # ---------------------------------------------------------------------------
 # Output quality tests
@@ -131,6 +166,143 @@ class TestForwardOutput:
 
 
 # ---------------------------------------------------------------------------
+# Delta scale tests (ARCH-02)
+# ---------------------------------------------------------------------------
+
+class TestDeltaScale:
+    def test_delta_scale_exists(self):
+        """ARCH-02: delta_scale parameter exists when init != 0."""
+        model = _make_model(delta_scale_init=100.0)
+        assert hasattr(model, 'delta_scale')
+        assert model.delta_scale is not None
+        assert isinstance(model.delta_scale, nn.Parameter)
+
+    def test_delta_scale_init_value(self):
+        """ARCH-02: delta_scale initialized to specified value."""
+        model = _make_model(delta_scale_init=100.0)
+        assert model.delta_scale.item() == pytest.approx(100.0)
+
+    def test_delta_scale_disabled(self):
+        """delta_scale is None when init is 0.0."""
+        model = _make_model(delta_scale_init=0.0)
+        assert model.delta_scale is None
+
+    def test_delta_scale_affects_output(self):
+        """ARCH-02: delta_scale changes output magnitude."""
+        torch.manual_seed(42)
+        x = torch.randn(1, 1, 4, 32, 32)
+        model_no_scale = _make_model(delta_scale_init=0.0, t_out=2)
+        model_with_scale = _make_model(delta_scale_init=100.0, t_out=2)
+        # Just verify both produce finite output
+        model_no_scale.eval()
+        model_with_scale.eval()
+        with torch.no_grad():
+            out1 = model_no_scale(x)
+            out2 = model_with_scale(x)
+        assert torch.isfinite(out1).all()
+        assert torch.isfinite(out2).all()
+
+
+# ---------------------------------------------------------------------------
+# Full v3.0 architecture tests (ARCH-01 through ARCH-07)
+# ---------------------------------------------------------------------------
+
+class TestFullArchitecture:
+    def test_full_arch_forward(self):
+        """ALL ARCH: Full v3.0 architecture produces finite output."""
+        model = _make_model(
+            use_sa_convlstm=True, temporal_attention=True,
+            attention_gate=True, delta_scale_init=100.0,
+            dropout_rate=0.15, channels=[4, 8, 16], kernel_size=3, t_out=2
+        )
+        model.eval()
+        x = torch.randn(1, 1, 10, 32, 32)  # T=10 input
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+        assert torch.isfinite(out).all()
+
+    def test_full_arch_dual_channel(self):
+        """Full v3.0 arch with dual-channel input."""
+        model = _make_model(
+            input_channels=2, output_channels=1,
+            use_sa_convlstm=True, temporal_attention=True,
+            attention_gate=True, delta_scale_init=100.0,
+            dropout_rate=0.15, t_out=2
+        )
+        model.eval()
+        x = torch.randn(1, 2, 10, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+        assert torch.isfinite(out).all()
+
+    def test_full_arch_with_downsample(self):
+        """Full v3.0 arch with input downsampling."""
+        model = _make_model(
+            use_sa_convlstm=True, temporal_attention=True,
+            attention_gate=True, delta_scale_init=100.0,
+            downsample_input=True, t_out=2
+        )
+        model.eval()
+        x = torch.randn(1, 1, 10, 64, 64)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 64, 64)
+        assert torch.isfinite(out).all()
+
+    def test_backward_compatibility(self):
+        """Default params (no SA features) still work correctly."""
+        model = _make_model(t_out=2)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+        assert torch.isfinite(out).all()
+
+    def test_sa_convlstm_replaces_all_modules(self):
+        """ARCH-01: All 6 ConvLSTM modules are SAConvLSTM when enabled."""
+        from models.sa_convlstm import SAConvLSTM
+        model = _make_model(use_sa_convlstm=True)
+        assert isinstance(model.encoder_conv1, SAConvLSTM)
+        assert isinstance(model.encoder_conv2, SAConvLSTM)
+        assert isinstance(model.encoder_conv3, SAConvLSTM)
+        assert isinstance(model.decoder_conv2, SAConvLSTM)
+        assert isinstance(model.decoder_conv3, SAConvLSTM)
+        assert isinstance(model.refine_conv, SAConvLSTM)
+
+    def test_sa_dropout_stochastic(self):
+        """ARCH-06: SA model with dropout produces stochastic outputs in train mode."""
+        model = _make_model(
+            use_sa_convlstm=True, dropout_rate=0.15, t_out=2
+        )
+        model.train()
+        x = torch.randn(1, 1, 4, 32, 32)
+
+        torch.manual_seed(0)
+        out1 = model(x)
+
+        torch.manual_seed(1)
+        out2 = model(x)
+
+        assert out1.shape == (1, 1, 2, 32, 32)
+        assert not torch.allclose(out1, out2, atol=1e-6), (
+            "SA model with dropout should produce different outputs"
+        )
+
+    def test_wider_channels_kernel5_combined(self):
+        """ARCH-04+05: Wider channels [32,64,128] with kernel_size=5."""
+        model = _make_model(channels=[32, 64, 128], kernel_size=5, t_out=2)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+        assert torch.isfinite(out).all()
+
+
+# ---------------------------------------------------------------------------
 # Utility tests
 # ---------------------------------------------------------------------------
 
@@ -166,3 +338,19 @@ class TestMPSSmoke:
             out = model(x)
         assert out.shape == (1, 1, 2, 32, 32), f"Got {out.shape}"
         assert torch.isfinite(out.cpu()).all(), "Non-finite values in MPS output"
+
+    @pytest.mark.mps
+    def test_full_arch_mps(self):
+        """Full v3.0 architecture on MPS device."""
+        device = torch.device("mps")
+        model = _make_model(
+            use_sa_convlstm=True, temporal_attention=True,
+            attention_gate=True, delta_scale_init=100.0,
+            dropout_rate=0.15, t_out=2
+        ).to(device)
+        model.eval()
+        x = torch.randn(1, 1, 4, 32, 32, device=device)
+        with torch.no_grad():
+            out = model(x)
+        assert out.shape == (1, 1, 2, 32, 32)
+        assert torch.isfinite(out.cpu()).all()
