@@ -84,7 +84,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — TDD: Implement flare-aware weighted sampling (build_index flare detection, WeightedRandomSampler integration, config cross-check)
+- [x] 09-01-PLAN.md — TDD: Implement flare-aware weighted sampling (build_index flare detection, WeightedRandomSampler integration, config cross-check)
 - [ ] 09-02-PLAN.md — Update config.yaml with v3.0 training defaults and wire flare sampling through main.py
 
 ### Phase 10: Architecture Scaling
@@ -123,6 +123,6 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | ------------------------- | -------------- | ----------- | --------- |
 | 7. Evaluation Metrics     | 1/2            | In Progress | -         |
 | 8. Loss Function Overhaul | 2/3            | In Progress | -         |
-| 9. Training Policy        | 0/2            | Not started | -         |
+| 9. Training Policy        | 1/2            | In Progress | -         |
 | 10. Architecture Scaling  | 0/TBD          | Not started | -         |
 | 11. Integration Testing   | 0/TBD          | Not started | -         |

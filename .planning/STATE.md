@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-03-08T09:39:00.859Z"
-last_activity: 2026-03-08 — Completed 08-03 training loop logging (TDD + visualization)
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-03-08T11:46:00.000Z"
+last_activity: 2026-03-08 — Completed 09-01 flare-aware weighted sampling (TDD)
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 95
+  total_plans: 7
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Transform the model from near-persistence predictions into a genuine temporal forecaster with strong flare detection
-**Current focus:** Phase 8 - Loss Function Overhaul
+**Current focus:** Phase 9 - Training Policy
 
 ## Current Position
 
-Phase: 8 of 11 (Loss Function Overhaul)
-Plan: 3 of 3 in current phase (08-03 complete)
+Phase: 9 of 11 (Training Policy)
+Plan: 1 of 2 in current phase (09-01 complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 08-03 training loop logging (TDD + visualization)
+Last activity: 2026-03-08 — Completed 09-01 flare-aware weighted sampling (TDD)
 
-Progress: [██████████] 95%
+Progress: [████████░░] 86%
 
 ## Accumulated Context
 
@@ -52,6 +52,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 08-02]: Config cross-check warning when loss.extreme_threshold differs from evaluation.extreme_threshold
 - [Phase 08-02]: Per-timestep weights applied to element-wise L1 error (not pred/target) to preserve SSIM behavior
 - [Phase 08]: Component tracking uses isinstance detection rather than flag parameter for simple API
+- [Phase 09-01]: Flare detection scans output frames only (not input) -- oversamples what model needs to predict
+- [Phase 09-01]: Sampler uses replacement=True with num_samples=len(weights) to maintain epoch length
+- [Phase 09-01]: Flare threshold sourced from evaluation.extreme_threshold (0.3456) when oversampling enabled
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T09:39:00.858Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-training-policy/09-CONTEXT.md
+Last session: 2026-03-08T11:46:00.000Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: .planning/phases/09-training-policy/09-01-SUMMARY.md

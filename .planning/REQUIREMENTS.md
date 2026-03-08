@@ -40,7 +40,7 @@
 - [ ] **TRAIN-01**: Cosine LR scheduler enabled (cosine annealing with eta_min=1e-6)
 - [ ] **TRAIN-02**: Balanced augmentation enabled (horizontal + vertical flips, 3x effective dataset)
 - [ ] **TRAIN-03**: Teacher forcing eliminated (tf_start=0.0)
-- [ ] **TRAIN-04**: Class-imbalanced sampling via WeightedRandomSampler (flare-containing sequences oversampled 3x)
+- [x] **TRAIN-04**: Class-imbalanced sampling via WeightedRandomSampler (flare-containing sequences oversampled 3x)
 - [ ] **TRAIN-05**: Training epochs increased to leverage more compute (50+ epochs with cosine schedule)
 
 ## Future Requirements
@@ -88,7 +88,7 @@
 | TRAIN-01 | Phase 9 | Pending |
 | TRAIN-02 | Phase 9 | Pending |
 | TRAIN-03 | Phase 9 | Pending |
-| TRAIN-04 | Phase 9 | Pending |
+| TRAIN-04 | Phase 9 | Complete |
 | TRAIN-05 | Phase 9 | Pending |
 | ARCH-01 | Phase 10 | Pending |
 | ARCH-02 | Phase 10 | Pending |
