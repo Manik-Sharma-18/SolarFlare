@@ -81,7 +81,11 @@ Plans:
 2. Data augmentation includes both horizontal and vertical flips (3x effective dataset size), and flare-containing sequences are oversampled 3x via WeightedRandomSampler
 3. Teacher forcing is eliminated (tf_start=0.0): the model produces all output frames autoregressively from step 1
 4. Training runs for 50+ epochs with the cosine schedule, and the model converges (validation loss stabilizes or decreases)
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — TDD: Implement flare-aware weighted sampling (build_index flare detection, WeightedRandomSampler integration, config cross-check)
+- [ ] 09-02-PLAN.md — Update config.yaml with v3.0 training defaults and wire flare sampling through main.py
 
 ### Phase 10: Architecture Scaling
 
@@ -119,6 +123,6 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | ------------------------- | -------------- | ----------- | --------- |
 | 7. Evaluation Metrics     | 1/2            | In Progress | -         |
 | 8. Loss Function Overhaul | 2/3            | In Progress | -         |
-| 9. Training Policy        | 0/TBD          | Not started | -         |
+| 9. Training Policy        | 0/2            | Not started | -         |
 | 10. Architecture Scaling  | 0/TBD          | Not started | -         |
 | 11. Integration Testing   | 0/TBD          | Not started | -         |
