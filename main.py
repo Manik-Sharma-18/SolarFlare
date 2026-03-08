@@ -129,7 +129,13 @@ def run_training(config: dict):
         train_flare_flags=train_flare_flags,
         flare_oversample_weight=flare_oversample_weight,
     )
-    
+
+    if train_flare_flags and flare_oversample_weight > 1.0:
+        n_flare = sum(train_flare_flags)
+        n_total = len(train_flare_flags)
+        print(f"  Flare sampling: {n_flare}/{n_total} sequences contain flares "
+              f"({100*n_flare/n_total:.1f}%), oversample weight: {flare_oversample_weight}x")
+
     # Save metadata
     output_dir = Path(config['output']['save_dir'])
     output_dir.mkdir(parents=True, exist_ok=True)
