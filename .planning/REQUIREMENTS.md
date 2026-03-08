@@ -27,13 +27,13 @@
 
 ### Architecture
 
-- [ ] **ARCH-01**: SA-ConvLSTM cells replace standard ConvLSTM cells (channel-attention variant with Self-Attention Memory)
+- [x] **ARCH-01**: SA-ConvLSTM cells replace standard ConvLSTM cells (channel-attention variant with Self-Attention Memory)
 - [ ] **ARCH-02**: Learned delta head scaling parameter (nn.Parameter, initialized to match typical delta magnitude)
-- [ ] **ARCH-03**: Spatial attention gates on skip connections (Attention U-Net pattern: Conv2d + Sigmoid)
+- [x] **ARCH-03**: Spatial attention gates on skip connections (Attention U-Net pattern: Conv2d + Sigmoid)
 - [ ] **ARCH-04**: Model channels widened to [32, 64, 128] (configurable)
 - [ ] **ARCH-05**: Kernel size increased to 5 (configurable)
 - [ ] **ARCH-06**: MC Dropout enabled at 0.15 for regularization
-- [ ] **ARCH-07**: Encoder stores all hidden states (not just final) for attention access
+- [x] **ARCH-07**: Encoder stores all hidden states (not just final) for attention access
 
 ### Training Policy
 
@@ -90,13 +90,13 @@
 | TRAIN-03 | Phase 9 | Complete |
 | TRAIN-04 | Phase 9 | Complete |
 | TRAIN-05 | Phase 9 | Complete |
-| ARCH-01 | Phase 10 | Pending |
+| ARCH-01 | Phase 10 | Complete |
 | ARCH-02 | Phase 10 | Pending |
-| ARCH-03 | Phase 10 | Pending |
+| ARCH-03 | Phase 10 | Complete |
 | ARCH-04 | Phase 10 | Pending |
 | ARCH-05 | Phase 10 | Pending |
 | ARCH-06 | Phase 10 | Pending |
-| ARCH-07 | Phase 10 | Pending |
+| ARCH-07 | Phase 10 | Complete |
 
 **Coverage:**
 - v3.0 requirements: 26 total

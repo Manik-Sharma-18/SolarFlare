@@ -98,7 +98,7 @@ Plans:
 2. Spatial attention gates on skip connections learn to focus on active regions (attention weights are not collapsed to uniform or zero)
 3. Model uses channels [32, 64, 128] and kernel size 5 (both configurable), with a learned delta head scaling parameter
 4. MC Dropout at 0.15 is active during training for regularization, and the model trains and evaluates without errors on CUDA, MPS, and CPU
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 10-01-PLAN.md — TDD: Create SA-ConvLSTM module and attention modules (TemporalAttention, AttentionGate) with tests
@@ -129,5 +129,5 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 7. Evaluation Metrics     | 1/2            | In Progress | -         |
 | 8. Loss Function Overhaul | 2/3            | In Progress | -         |
 | 9. Training Policy        | 1/2            | In Progress | -         |
-| 10. Architecture Scaling  | 0/3            | Planned     | -         |
+| 10. Architecture Scaling  | 1/3 | In Progress|  |
 | 11. Integration Testing   | 0/TBD          | Not started | -         |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-03-08T12:39:33.616Z"
-last_activity: 2026-03-08 — Completed 09-02 v3.0 training policy defaults
+stopped_at: Completed 10-01 standalone modules
+last_updated: "2026-03-08T13:28:20.761Z"
+last_activity: 2026-03-08 — Completed 10-01 SA-ConvLSTM and attention modules
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_plans: 10
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Transform the model from near-persistence predictions into a genuine temporal forecaster with strong flare detection
-**Current focus:** Phase 9 - Training Policy
+**Current focus:** Phase 10 - Architecture Scaling
 
 ## Current Position
 
-Phase: 9 of 11 (Training Policy)
-Plan: 2 of 2 in current phase (09-02 complete, phase complete)
+Phase: 10 of 11 (Architecture Scaling)
+Plan: 1 of 3 in current phase (10-01 complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 09-02 v3.0 training policy defaults
+Last activity: 2026-03-08 — Completed 10-01 SA-ConvLSTM and attention modules
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Accumulated Context
 
@@ -56,6 +56,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 09-01]: Sampler uses replacement=True with num_samples=len(weights) to maintain epoch length
 - [Phase 09-01]: Flare threshold sourced from evaluation.extreme_threshold (0.3456) when oversampling enabled
 - [Phase 09-02]: Plan 01 already wired flare flags and oversample weight through main.py; Plan 02 added config defaults and diagnostic logging only
+- [Phase 10-01]: Memory projection layer added to SAM for hidden_dim shape consistency; SAM params ~4*C^2 (not 3.5*C^2)
+- [Phase 10-01]: Composition pattern: SAConvLSTMCell wraps ConvLSTMCell, returns (h,c,m) 3-tuple
+- [Phase 10-01]: All attention uses manual bmm+softmax (no F.scaled_dot_product_attention) for MPS compatibility
 
 ### Pending Todos
 
@@ -76,6 +79,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T12:39:33.610Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-architecture-scaling/10-CONTEXT.md
+Last session: 2026-03-08T13:28:20.759Z
+Stopped at: Completed 10-01 standalone modules
+Resume file: None
