@@ -13,11 +13,13 @@ data:
   preprocessed_dir: "./data_processed"  # Path to preprocessed cube files
   t_in: 10                # Number of input timesteps
   t_out: 4                # Number of output timesteps to predict
-  augmentation: "none"    # "none", "balanced" (h/v flips), or "aggressive" (flips + rotations)
+  augmentation: "balanced"    # "none", "balanced" (h/v flips), or "aggressive" (flips + rotations)
   stride: 1               # Sliding window stride (1 = maximum overlap, higher = fewer samples)
   split_ratios: [0.7, 0.2, 0.1]  # Train/test/val split ratios (whole-file assignment)
   dual_channel: true      # Enable dual-channel mode (flux + extreme indicator)
   num_workers: 0          # DataLoader workers (0 = main process only, >0 = multiprocessing)
+  # Oversample flare-containing sequences (1.0 = disabled, 3.0 = 3x oversampling)
+  flare_oversample_weight: 3.0
 
 normalization:
   method: "asinh"         # "asinh" (recommended), "robust", or "fixed"
@@ -39,17 +41,17 @@ model:
 
 training:
   batch_size: 1           # Batch size (keep at 1 for large spatial dims)
-  epochs: 25              # Number of training epochs (~1 hour on RTX 3050)
+  epochs: 50              # Number of training epochs (~1 hour on RTX 3050)
   lr: 0.0001               # Learning rate
   weight_decay: 0.00001   # L2 regularization
-  tf_start: 0.5           # Initial teacher forcing ratio
-  patience: 8             # Early stopping patience
+  tf_start: 0.0           # Initial teacher forcing ratio
+  patience: 18            # Early stopping patience
   use_amp: false           # Use automatic mixed precision (faster, less VRAM)
   grad_clip: 0.5          # Gradient clipping max norm
   
   # Learning rate scheduler configuration
   scheduler:
-    type: "none"          # Options: "cosine", "step", "constant", "none"
+    type: "cosine"        # Options: "cosine", "step", "constant", "none"
     # Cosine annealing options
     cosine_eta_min: 0.000001  # Minimum LR for cosine (default: 1e-6)
     # Step scheduler options  
