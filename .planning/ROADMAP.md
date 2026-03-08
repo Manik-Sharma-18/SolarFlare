@@ -116,7 +116,11 @@ Plans:
 2. Temporal variation ratio is significantly higher than v2.0 baseline (0.056), indicating the model produces genuine frame-to-frame dynamics
 3. CSI for flare detection is significantly higher than v2.0 baseline (0.05), and skill-over-persistence exceeds the v2.0 margin of 3-9%
 4. A diagnostic comparison report documents v3.0 vs v2.0 on all evaluation metrics (MAE, RMSE, CSI, HSS, SSIM, persistence skill, temporal variation ratio, peak flux error)
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — Pre-flight checks, smoke test, and full 50-epoch v3.0 training run with all features enabled
+- [ ] 11-02-PLAN.md — Generate v3.0 vs v2.0 comparison report with metric tables, charts, and verdict
 
 ## Progress
 
@@ -130,4 +134,4 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 8. Loss Function Overhaul | 2/3            | In Progress | -         |
 | 9. Training Policy        | 1/2            | In Progress | -         |
 | 10. Architecture Scaling  | 3/3 | Complete    | 2026-03-08 |
-| 11. Integration Testing   | 0/TBD          | Not started | -         |
+| 11. Integration Testing   | 0/2            | Not started | -         |
