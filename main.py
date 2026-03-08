@@ -161,7 +161,11 @@ def run_training(config: dict):
         kernel_size=config['model']['kernel_size'],
         downsample_input=config['model']['downsample_input'],
         use_checkpointing=use_checkpointing,
-        dropout_rate=dropout_rate
+        dropout_rate=dropout_rate,
+        use_sa_convlstm=config['model'].get('use_sa_convlstm', False),
+        temporal_attention=config['model'].get('temporal_attention', False),
+        attention_gate=config['model'].get('attention_gate', False),
+        delta_scale_init=config['model'].get('delta_scale_init', 0.0),
     )
     model = model.to(device)
     
@@ -344,7 +348,11 @@ def run_inference(config: dict, checkpoint_path: str, data_path: str = None):
         kernel_size=config['model']['kernel_size'],
         downsample_input=config['model']['downsample_input'],
         use_checkpointing=config['model'].get('use_checkpointing', False),
-        dropout_rate=config['model'].get('dropout_rate', 0.0)
+        dropout_rate=config['model'].get('dropout_rate', 0.0),
+        use_sa_convlstm=config['model'].get('use_sa_convlstm', False),
+        temporal_attention=config['model'].get('temporal_attention', False),
+        attention_gate=config['model'].get('attention_gate', False),
+        delta_scale_init=config['model'].get('delta_scale_init', 0.0),
     )
     model = model.to(device)
 
