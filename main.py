@@ -87,6 +87,10 @@ def run_training(config: dict):
         else None
     )
 
+    # Optional spatial resize for uniform batching
+    target_size_cfg = config['data'].get('target_size')
+    target_size = tuple(target_size_cfg) if target_size_cfg else None
+
     if use_preprocessed:
         # Fast loading from preprocessed cubes
         train_dataset, val_dataset, test_dataset, metadata = load_preprocessed_data(
@@ -100,6 +104,7 @@ def run_training(config: dict):
             failure_threshold=failure_threshold,
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
+            target_size=target_size,
         )
     else:
         # Load from raw structured arrays (slower)
@@ -116,6 +121,7 @@ def run_training(config: dict):
             failure_threshold=failure_threshold,
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
+            target_size=target_size,
         )
 
     # Create dataloaders (with optional flare oversampling)
