@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
-stopped_at: Phase 11 context gathered
-last_updated: "2026-03-08T19:48:00.721Z"
-last_activity: 2026-03-08 — Completed 10-03 config infrastructure with v3.0 defaults and attention entropy logging
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-03-09T08:52:04.064Z"
+last_activity: 2026-03-09 — Completed 11-02 v3.0 vs v2.0 comparison report with MIXED verdict
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Transform the model from near-persistence predictions into a genuine temporal forecaster with strong flare detection
-**Current focus:** Phase 10 - Architecture Scaling
+**Current focus:** Phase 11 - Integration Testing & Validation (complete)
 
 ## Current Position
 
-Phase: 10 of 11 (Architecture Scaling)
-Plan: 3 of 3 in current phase (10-03 complete)
+Phase: 11 of 11 (Integration Testing & Validation)
+Plan: 2 of 2 in current phase (11-02 complete)
 Status: Executing
-Last activity: 2026-03-08 — Completed 10-03 config infrastructure with v3.0 defaults and attention entropy logging
+Last activity: 2026-03-09 — Completed 11-02 v3.0 vs v2.0 comparison report with MIXED verdict
 
 Progress: [██████████] 100%
 
@@ -65,6 +65,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 10]: [Phase 10-03]: Channel attention entropy deferred to Phase 11 -- temporal entropy is the key overfitting diagnostic
 - [Phase 10]: [Phase 10-03]: Only delta_scale excluded from weight decay by name (not all biases) per RESEARCH.md
 - [Phase 10]: [Phase 10-03]: Forward hook on temporal_attn for entropy capture avoids modifying predictor API
+- [Phase 11-02]: MIXED verdict -- temporal variation ratio improved 258% (0.060 to 0.215) but CSI regressed 74% (0.051 to 0.014)
+- [Phase 11-02]: v2.0 baselines hardcoded in comparison script per user decision rather than loading from separate outputs
+- [Phase 11-02]: 25 epochs used instead of 50 due to training time; documented in methodology
 
 ### Pending Todos
 
@@ -85,6 +88,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T19:48:00.716Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-integration-testing-validation/11-CONTEXT.md
+Last session: 2026-03-09T08:52:03.137Z
+Stopped at: Completed 11-02-PLAN.md
+Resume file: None
