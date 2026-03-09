@@ -90,9 +90,9 @@ def run_training(config: dict):
     # Flare density threshold for spatial density criterion
     flare_density_threshold = config['data'].get('flare_density_threshold', 0.02)
 
-    # Optional spatial resize for uniform batching
-    target_size_cfg = config['data'].get('target_size')
-    target_size = tuple(target_size_cfg) if target_size_cfg else None
+    # Center-crop for uniform spatial dims (preserves physical scale)
+    crop_size_cfg = config['data'].get('crop_size')
+    crop_size = tuple(crop_size_cfg) if crop_size_cfg else None
 
     if use_preprocessed:
         # Fast loading from preprocessed cubes
@@ -107,7 +107,7 @@ def run_training(config: dict):
             failure_threshold=failure_threshold,
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
-            target_size=target_size,
+            crop_size=crop_size,
             flare_density_threshold=flare_density_threshold,
         )
     else:
@@ -125,7 +125,7 @@ def run_training(config: dict):
             failure_threshold=failure_threshold,
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
-            target_size=target_size,
+            crop_size=crop_size,
             flare_density_threshold=flare_density_threshold,
         )
 

@@ -40,6 +40,21 @@ class DataValidationError(Exception):
     pass
 
 
+def _center_crop(arr: np.ndarray, crop_h: int, crop_w: int) -> np.ndarray:
+    """Center-crop a (T, H, W) array to (T, crop_h, crop_w).
+
+    Raises ValueError if crop dimensions exceed array dimensions.
+    """
+    _, h, w = arr.shape
+    if crop_h > h or crop_w > w:
+        raise ValueError(
+            f"Crop size ({crop_h}, {crop_w}) exceeds array spatial dims ({h}, {w})"
+        )
+    y0 = (h - crop_h) // 2
+    x0 = (w - crop_w) // 2
+    return arr[:, y0:y0 + crop_h, x0:x0 + crop_w]
+
+
 def _preflight_scan_npy(npy_files: List[Path], failure_threshold: float) -> List[Path]:
     """
     Pre-flight scan of raw .npy structured array files.
@@ -353,7 +368,7 @@ def load_and_prepare_data(
     failure_threshold: float = 0.1,
     seed: int = 42,
     flare_extreme_threshold: Optional[float] = None,
-    target_size: Optional[Tuple[int, int]] = None,
+    crop_size: Optional[Tuple[int, int]] = None,
     flare_density_threshold: float = 0.02,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
@@ -375,6 +390,7 @@ def load_and_prepare_data(
         dual_channel: If True, output 2 channels (flux + extreme indicator).
         failure_threshold: Max fraction of files that can fail before aborting.
         seed: Random seed for split assignment and DataLoader workers.
+        crop_size: If set, center-crop each cube to ``(H, W)`` preserving physical scale.
 
     Returns:
         ``(train_dataset, val_dataset, test_dataset, metadata)``
@@ -420,14 +436,10 @@ def load_and_prepare_data(
             print(f"  Converting {file_path.name}...")
             data = np.load(file_path)
             flux_cube, cube_meta = _structured_to_cube(data)
-            if target_size is not None:
-                th, tw = target_size
-                if flux_cube.shape[1] != th or flux_cube.shape[2] != tw:
-                    import torch as _torch
-                    import torch.nn.functional as _F
-                    t = _torch.from_numpy(flux_cube).float().unsqueeze(1)
-                    t = _F.interpolate(t, size=(th, tw), mode='bilinear', align_corners=False)
-                    flux_cube = t.squeeze(1).numpy()
+            if crop_size is not None:
+                ch, cw = crop_size
+                if flux_cube.shape[1] != ch or flux_cube.shape[2] != cw:
+                    flux_cube = _center_crop(flux_cube, ch, cw)
             out_path = tmp_dir / f"cube_{i:04d}.npy"
             np.save(out_path, flux_cube)
             cube_paths.append(str(out_path))
@@ -575,7 +587,7 @@ def load_preprocessed_data(
     failure_threshold: float = 0.1,
     seed: int = 42,
     flare_extreme_threshold: Optional[float] = None,
-    target_size: Optional[Tuple[int, int]] = None,
+    crop_size: Optional[Tuple[int, int]] = None,
     flare_density_threshold: float = 0.02,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
@@ -595,6 +607,7 @@ def load_preprocessed_data(
         dual_channel: If True, output 2 channels (flux + extreme indicator).
         failure_threshold: Max fraction of files that can fail before aborting.
         seed: Random seed for split assignment.
+        crop_size: If set, center-crop each cube to ``(H, W)`` preserving physical scale.
 
     Returns:
         ``(train_dataset, val_dataset, test_dataset, metadata)``
@@ -629,7 +642,7 @@ def load_preprocessed_data(
     valid_cube_files = _preflight_scan_npz(cube_files, failure_threshold)
 
     # Extract cubes and save as .npy for mmap-based SolarFluxDataset
-    # If target_size is set, resize each cube once here (not per-sample)
+    # If crop_size is set, center-crop each cube once here (not per-sample)
     tmp_dir = Path(tempfile.mkdtemp(prefix="solarflare_preproc_"))
     cube_paths: List[str] = []
 
@@ -638,20 +651,15 @@ def load_preprocessed_data(
         npz = np.load(cube_file)
         cube = npz['data']
         orig_shape = cube.shape
-        if target_size is not None:
-            th, tw = target_size
-            if cube.shape[1] != th or cube.shape[2] != tw:
-                import torch as _torch
-                import torch.nn.functional as _F
-                # Resize (T, H, W) -> (T, th, tw) in one batch call
-                t = _torch.from_numpy(cube).float().unsqueeze(1)  # (T, 1, H, W)
-                t = _F.interpolate(t, size=(th, tw), mode='bilinear', align_corners=False)
-                cube = t.squeeze(1).numpy()
+        if crop_size is not None:
+            ch, cw = crop_size
+            if cube.shape[1] != ch or cube.shape[2] != cw:
+                cube = _center_crop(cube, ch, cw)
         out_path = tmp_dir / f"cube_{i:04d}.npy"
         np.save(out_path, cube)
         cube_paths.append(str(out_path))
-        if target_size and (orig_shape[1] != cube.shape[1] or orig_shape[2] != cube.shape[2]):
-            print(f"    Shape: {orig_shape} → {cube.shape} (resized)")
+        if crop_size and (orig_shape[1] != cube.shape[1] or orig_shape[2] != cube.shape[2]):
+            print(f"    Shape: {orig_shape} -> {cube.shape} (center-cropped)")
         else:
             print(f"    Shape: {cube.shape}")
 

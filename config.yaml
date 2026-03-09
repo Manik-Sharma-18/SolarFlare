@@ -18,7 +18,7 @@ data:
   split_ratios: [0.7, 0.2, 0.1]  # Train/test/val split ratios (whole-file assignment)
   dual_channel: true      # Enable dual-channel mode (flux + extreme indicator)
   num_workers: 0          # DataLoader workers (0 = main process only, >0 = multiprocessing)
-  target_size: [448, 896] # Resize all samples to uniform (H, W) for batch_size > 1
+  crop_size: [437, 877]  # Center-crop all cubes to uniform (H, W), preserving 0.36 Mm/pixel scale
   # Oversample flare-containing sequences (1.0 = disabled, 3.0 = 3x oversampling)
   flare_oversample_weight: 1.0
   flare_density_threshold: 0.02  # Fraction of pixels above extreme threshold to flag as flare (0.02 = 2%)
@@ -47,7 +47,7 @@ model:
   temporal_attention: true # ARCH-07: Temporal attention over encoder hidden states
 
 training:
-  batch_size: 4           # Batch size (target_size enables uniform spatial dims)
+  batch_size: 4           # Batch size (crop_size enables uniform spatial dims)
   epochs: 25              # Number of training epochs
   lr: 0.0001               # Learning rate
   weight_decay: 0.00001   # L2 regularization
