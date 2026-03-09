@@ -4,8 +4,8 @@ milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
 stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-03-09T08:52:04.064Z"
-last_activity: 2026-03-09 — Completed 11-02 v3.0 vs v2.0 comparison report with MIXED verdict
+last_updated: "2026-03-09T09:57:00Z"
+last_activity: 2026-03-09 — Completed quick-02 fix broken extreme threshold (0.3456 -> 0.277)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -68,6 +68,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 11-02]: MIXED verdict -- temporal variation ratio improved 258% (0.060 to 0.215) but CSI regressed 74% (0.051 to 0.014)
 - [Phase 11-02]: v2.0 baselines hardcoded in comparison script per user decision rather than loading from separate outputs
 - [Phase 11-02]: 25 epochs used instead of 50 due to training time; documented in methodology
+- [Quick-02]: Extreme threshold corrected from 0.3456 (99.5th pct) to 0.277 (99th pct in normalized space)
+- [Quick-02]: Flare detection uses spatial density (>2% pixels) instead of np.any() which flagged 100% of windows
+- [Quick-02]: Dual-channel indicator now receives normalized threshold instead of raw (28070) -- channel 2 no longer all zeros
 
 ### Pending Todos
 
@@ -85,9 +88,10 @@ None.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 001 | Create model architecture document with visuals for non-ML audience | 2026-02-17 | b1a2396 | [001-model-architecture-doc](./quick/001-model-architecture-doc/) |
+| 002 | Fix broken extreme threshold: correct value, dual-channel, spatial density | 2026-03-09 | 08cf9ea | [2-fix-broken-extreme-threshold-correct-val](./quick/2-fix-broken-extreme-threshold-correct-val/) |
 
 ## Session Continuity
 
-Last session: 2026-03-09T08:52:03.137Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-03-09T09:57:00Z
+Stopped at: Completed quick-02 fix broken extreme threshold
 Resume file: None
