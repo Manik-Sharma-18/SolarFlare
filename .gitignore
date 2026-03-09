@@ -67,6 +67,9 @@ uncertainty_*.png
 flare*.png
 evolution*.png
 comparison*.png
+!comparison_metrics.png
+!comparison_temporal.png
+!comparison_samples.png
 viewer.html
 
 # Training outputs (JSON files in outputs/)
