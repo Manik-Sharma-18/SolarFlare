@@ -21,11 +21,12 @@ data:
   target_size: [448, 896] # Resize all samples to uniform (H, W) for batch_size > 1
   # Oversample flare-containing sequences (1.0 = disabled, 3.0 = 3x oversampling)
   flare_oversample_weight: 1.0
+  flare_density_threshold: 0.02  # Fraction of pixels above extreme threshold to flag as flare (0.02 = 2%)
 
 normalization:
   method: "asinh"         # "asinh" (recommended), "robust", or "fixed"
   asinh_softening: 1000.0 # Softening parameter for asinh (higher = less compression)
-  extreme_threshold_percentile: 99.5  # Percentile for extreme event detection
+  extreme_threshold_percentile: 99  # Percentile for extreme event detection
   # Legacy options (for method: "robust" or "fixed")
   fixed_factor: 40000.0   # Only used if method is "fixed"
   percentile_low: 1       # Lower percentile for robust normalization
@@ -79,11 +80,11 @@ loss:
   temporal_weights: [1.0, 1.5, 2.0, 2.5]  # Per-timestep weighting (linear ramp)
   asymmetric_weight: 0.5    # Weight for asymmetric extreme loss
   asymmetric_alpha: 2.0     # Underestimation costs 2x overestimation above threshold
-  extreme_threshold: 0.3456 # Matches evaluation threshold for consistent extreme definition
+  extreme_threshold: 0.277 # 99th percentile in normalized asinh space (~17,400 raw)
 
 # Evaluation metrics configuration
 evaluation:
-  extreme_threshold: 0.3456    # Normalized space threshold for CSI/HSS binary classification
+  extreme_threshold: 0.277    # 99th percentile in normalized asinh space (~17,400 raw)
   verbose_metrics: false        # Print per-timestep breakdown every epoch (vs only final)
 
 output:

@@ -79,13 +79,17 @@ def compute_normalization(cubes: list, method: str = 'robust',
         
         # Compute threshold for extreme events (for dual-channel)
         extreme_threshold = float(np.percentile(np.abs(all_values), extreme_threshold_percentile))
-        
+
+        # Also compute normalized-space extreme threshold for dual-channel mode
+        extreme_threshold_normalized = float(np.arcsinh(extreme_threshold / asinh_softening) / max(scale, 1.0))
+
         return {
             'method': 'asinh',
             'center': center,
             'scale': scale,
             'asinh_softening': asinh_softening,
             'extreme_threshold': extreme_threshold,
+            'extreme_threshold_normalized': extreme_threshold_normalized,
             'extreme_threshold_percentile': extreme_threshold_percentile,
             **data_stats,
         }

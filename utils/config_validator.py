@@ -340,7 +340,7 @@ def validate_config(config: dict) -> None:
                 if aa < 1.0:
                     errors.append(f"'loss.asymmetric_alpha' must be >= 1.0, got {aa}")
 
-        # extreme_threshold (optional, default 0.3456)
+        # extreme_threshold (optional, default 0.277)
         et_loss = loss.get("extreme_threshold")
         if et_loss is not None:
             if _require_type("loss.extreme_threshold", (int, float), et_loss):
