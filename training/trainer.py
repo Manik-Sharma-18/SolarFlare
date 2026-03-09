@@ -197,7 +197,7 @@ def validate(
     use_amp: bool = True,
     show_progress: bool = True,
     output_channels: int = 1,
-    extreme_threshold: float = 0.3456,
+    extreme_threshold: float = 0.277,
     ssim_data_range: float = 2.0,
     verbose_metrics: bool = False,
     epoch: Optional[int] = None,
@@ -564,7 +564,7 @@ def train_model(
     
     # Evaluation config
     eval_config = config.get('evaluation', {})
-    extreme_threshold = eval_config.get('extreme_threshold', 0.3456)
+    extreme_threshold = eval_config.get('extreme_threshold', 0.277)
     verbose_metrics = eval_config.get('verbose_metrics', False)
     ssim_data_range = config.get('loss', {}).get('ssim_data_range', 2.0)
 

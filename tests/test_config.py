@@ -192,7 +192,7 @@ def test_uncertainty_n_samples_too_low(base_config):
 def test_valid_evaluation_section(base_config):
     """Config with valid evaluation section passes validation."""
     base_config["evaluation"] = {
-        "extreme_threshold": 0.3456,
+        "extreme_threshold": 0.277,
         "verbose_metrics": False,
     }
     validate_config(base_config)  # Should not raise
@@ -238,7 +238,7 @@ def test_loss_temporal_config_valid(base_config):
         "temporal_weights": [1.0, 1.5, 2.0, 2.5],
         "asymmetric_weight": 0.5,
         "asymmetric_alpha": 2.0,
-        "extreme_threshold": 0.3456,
+        "extreme_threshold": 0.277,
     }
     validate_config(base_config)  # Should not raise
 

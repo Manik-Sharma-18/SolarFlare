@@ -273,7 +273,7 @@ class WeightedMAELoss(nn.Module):
         self,
         base_weight: float = 1.0,
         extreme_weight: float = 3.0,
-        threshold: float = 0.3456,
+        threshold: float = 0.277,
     ):
         super().__init__()
         self.base_weight = base_weight
@@ -312,7 +312,7 @@ class AsymmetricExtremeLoss(nn.Module):
         threshold: Absolute threshold for extreme region classification.
     """
 
-    def __init__(self, alpha: float = 2.0, threshold: float = 0.3456):
+    def __init__(self, alpha: float = 2.0, threshold: float = 0.277):
         super().__init__()
         self.alpha = alpha
         self.threshold = threshold
@@ -456,7 +456,7 @@ class CompositeLoss(nn.Module):
         temporal_var_lambda: float = 0.1,
         asymmetric_weight: float = 0.5,
         asymmetric_alpha: float = 2.0,
-        extreme_threshold: float = 0.3456,
+        extreme_threshold: float = 0.277,
         temporal_weights: Optional[List[float]] = None,
     ):
         """
@@ -622,7 +622,7 @@ def get_loss_function(config: Dict) -> nn.Module:
             temporal_var_lambda=config.get('temporal_var_lambda', 0.1),
             asymmetric_weight=config.get('asymmetric_weight', 0.5),
             asymmetric_alpha=config.get('asymmetric_alpha', 2.0),
-            extreme_threshold=config.get('extreme_threshold', 0.3456),
+            extreme_threshold=config.get('extreme_threshold', 0.277),
             temporal_weights=config.get('temporal_weights', [1.0, 1.5, 2.0, 2.5]),
         )
 

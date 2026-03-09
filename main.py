@@ -82,7 +82,7 @@ def run_training(config: dict):
     # Flare detection threshold (used by build_index for oversampling)
     flare_oversample_weight = config['data'].get('flare_oversample_weight', 1.0)
     flare_extreme_threshold = (
-        config.get('evaluation', {}).get('extreme_threshold', 0.3456)
+        config.get('evaluation', {}).get('extreme_threshold', 0.277)
         if flare_oversample_weight > 1.0
         else None
     )
@@ -234,7 +234,7 @@ def run_training(config: dict):
     loss_fn = loss_fn.to(device)
     
     eval_config = config.get('evaluation', {})
-    extreme_threshold = eval_config.get('extreme_threshold', 0.3456)
+    extreme_threshold = eval_config.get('extreme_threshold', 0.277)
     ssim_data_range = config.get('loss', {}).get('ssim_data_range', 2.0)
 
     test_metrics = validate(

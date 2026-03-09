@@ -491,7 +491,7 @@ def generate_report(v2: dict, v3: dict, verdict: str, output_dir: str,
     lines.append("")
     lines.append(
         f"CSI and HSS measure the model's ability to detect extreme flux events (above the "
-        f"threshold of 0.3456 in normalized space)."
+        f"threshold of 0.277 in normalized space)."
     )
     lines.append("")
     lines.append(f"- **CSI:** v2.0 = {v2['test_csi']:.4f}, v3.0 = {v3['test_csi']:.4f} "
@@ -641,7 +641,7 @@ def generate_report(v2: dict, v3: dict, verdict: str, output_dir: str,
     lines.append("| Temporal var lambda | 0.1 |")
     lines.append("| Temporal weights | [1.0, 1.5, 2.0, 2.5] |")
     lines.append("| Asymmetric weight/alpha | 0.5 / 2.0 |")
-    lines.append("| Extreme threshold | 0.3456 |")
+    lines.append("| Extreme threshold | 0.277 |")
     lines.append("| Scheduler | Cosine (eta_min=1e-6) |")
     lines.append("| Learning rate | 0.0001 |")
     lines.append("| Batch size | 4 |")
@@ -673,7 +673,7 @@ def generate_report(v2: dict, v3: dict, verdict: str, output_dir: str,
     lines.append("- **Evaluation:** Test split evaluation using the best model checkpoint "
                  "(lowest validation loss).")
     lines.append("- **Metrics:** All metrics computed on the test split. CSI and HSS use "
-                 "threshold 0.3456 in normalized space.")
+                 "threshold 0.277 in normalized space.")
     lines.append("")
     lines.append("---")
     lines.append("")

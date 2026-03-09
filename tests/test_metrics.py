@@ -359,7 +359,7 @@ class TestValidateReturnsDict:
             use_amp=False,
             show_progress=False,
             output_channels=1,
-            extreme_threshold=0.3456,
+            extreme_threshold=0.277,
             ssim_data_range=2.0,
         )
 
@@ -397,7 +397,7 @@ class TestValidateReturnsDict:
             use_amp=False,
             show_progress=False,
             output_channels=1,
-            extreme_threshold=0.3456,
+            extreme_threshold=0.277,
             ssim_data_range=2.0,
         )
 

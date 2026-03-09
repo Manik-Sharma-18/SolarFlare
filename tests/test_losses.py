@@ -133,18 +133,18 @@ class TestGaussianKernel:
 class TestWeightedMAE:
     def test_weighted_mae_zero_error(self):
         """pred == target should produce loss ~0."""
-        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.277)
         x = torch.rand(1, 1, 32, 32)
         val = loss_fn(x, x)
         assert val.item() < 1e-6, f"Expected ~0, got {val.item()}"
 
     def test_weighted_mae_extreme_higher_weight(self):
         """Extreme target values (above threshold) should produce higher loss than uniform L1."""
-        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.277)
 
         # Target with mix of normal (0.1, below threshold) and extreme (0.5, above threshold)
         target = torch.full((1, 1, 32, 32), 0.1)
-        target[:, :, :16, :] = 0.5  # above threshold=0.3456
+        target[:, :, :16, :] = 0.5  # above threshold=0.277
 
         # Pred with uniform offset
         pred = target + 0.05
@@ -163,7 +163,7 @@ class TestWeightedMAE:
         Binary weighting with absolute threshold means the loss should NOT depend
         on the maximum target value in the batch (unlike the old relative approach).
         """
-        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.3456)
+        loss_fn = WeightedMAELoss(base_weight=1.0, extreme_weight=3.0, threshold=0.277)
 
         # Batch 1: target has values 0.5 (above threshold), max is 0.5
         target1 = torch.full((1, 1, 8, 8), 0.5)
@@ -179,7 +179,7 @@ class TestWeightedMAE:
         loss2 = loss_fn(pred2, target2)
 
         # With absolute threshold, both should use extreme_weight for all pixels
-        # (all target values > 0.3456), so losses should be identical
+        # (all target values > 0.277), so losses should be identical
         assert torch.allclose(loss1, loss2, atol=1e-5), (
             f"Absolute threshold failed: loss1={loss1.item():.6f} vs loss2={loss2.item():.6f} "
             f"should be identical for same error magnitudes"
@@ -223,7 +223,7 @@ class TestAsymmetricExtremeLoss:
         With alpha=2.0, underestimating an extreme region by 0.2 should produce
         2x the loss compared to overestimating by the same magnitude.
         """
-        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.277)
 
         # Target above threshold
         target = torch.full((1, 1, 4, 4), 0.5)
@@ -245,7 +245,7 @@ class TestAsymmetricExtremeLoss:
 
     def test_symmetric_below_threshold(self):
         """Below threshold, underestimation and overestimation produce equal loss."""
-        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.277)
 
         # Target below threshold
         target = torch.full((1, 1, 4, 4), 0.1)
@@ -265,7 +265,7 @@ class TestAsymmetricExtremeLoss:
 
     def test_zero_error(self):
         """pred == target should produce loss ~0."""
-        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.3456)
+        loss_fn = AsymmetricExtremeLoss(alpha=2.0, threshold=0.277)
         target = torch.full((1, 1, 8, 8), 0.5)
         pred = target.clone()
         loss_val = loss_fn(pred, target)
@@ -575,7 +575,7 @@ class TestGetLossFunction:
             "temporal_var_lambda": 0.1,
             "asymmetric_weight": 0.5,
             "asymmetric_alpha": 2.0,
-            "extreme_threshold": 0.3456,
+            "extreme_threshold": 0.277,
             "temporal_weights": [1.0, 1.5, 2.0, 2.5],
         }
         fn = get_loss_function(config)
