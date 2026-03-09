@@ -87,6 +87,9 @@ def run_training(config: dict):
         else None
     )
 
+    # Flare density threshold for spatial density criterion
+    flare_density_threshold = config['data'].get('flare_density_threshold', 0.02)
+
     # Optional spatial resize for uniform batching
     target_size_cfg = config['data'].get('target_size')
     target_size = tuple(target_size_cfg) if target_size_cfg else None
@@ -105,6 +108,7 @@ def run_training(config: dict):
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
             target_size=target_size,
+            flare_density_threshold=flare_density_threshold,
         )
     else:
         # Load from raw structured arrays (slower)
@@ -122,6 +126,7 @@ def run_training(config: dict):
             seed=seed,
             flare_extreme_threshold=flare_extreme_threshold,
             target_size=target_size,
+            flare_density_threshold=flare_density_threshold,
         )
 
     # Create dataloaders (with optional flare oversampling)

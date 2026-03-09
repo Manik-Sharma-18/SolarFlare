@@ -354,6 +354,7 @@ def load_and_prepare_data(
     seed: int = 42,
     flare_extreme_threshold: Optional[float] = None,
     target_size: Optional[Tuple[int, int]] = None,
+    flare_density_threshold: float = 0.02,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
     Load raw .npy files and create train/val/test datasets with whole-file splitting.
@@ -495,7 +496,17 @@ def load_and_prepare_data(
     # ------------------------------------------------------------------
     # Build index and datasets for each split
     # ------------------------------------------------------------------
-    extreme_threshold = norm_params.get('extreme_threshold', None) if dual_channel else None
+    if dual_channel:
+        raw_et = norm_params.get('extreme_threshold')
+        if raw_et is not None and norm_method == 'asinh':
+            softening = norm_params.get('asinh_softening', 1000.0)
+            scale_val = norm_params.get('scale', 1.0)
+            import math
+            extreme_threshold = math.asinh(raw_et / softening) / scale_val
+        else:
+            extreme_threshold = norm_params.get('extreme_threshold', None)
+    else:
+        extreme_threshold = None
 
     datasets_out = {}
     split_flare_flags = {}
@@ -510,6 +521,7 @@ def load_and_prepare_data(
             augmentation=aug,
             split=split_name,
             extreme_threshold=flare_extreme_threshold,
+            flare_density_threshold=flare_density_threshold,
         )
         ds = SolarFluxDataset(
             file_paths=cube_paths,
@@ -564,6 +576,7 @@ def load_preprocessed_data(
     seed: int = 42,
     flare_extreme_threshold: Optional[float] = None,
     target_size: Optional[Tuple[int, int]] = None,
+    flare_density_threshold: float = 0.02,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """
     Load preprocessed cube files for fast training with whole-file splitting.
@@ -647,9 +660,20 @@ def load_preprocessed_data(
         [Path(p) for p in cube_paths], split_ratios, seed
     )
 
-    # Extreme threshold for dual-channel mode
-    extreme_threshold = norm_info.get('extreme_threshold', None) if dual_channel else None
+    # Extreme threshold for dual-channel mode (must be in NORMALIZED space)
+    extreme_threshold = None
     if dual_channel:
+        extreme_threshold = norm_info.get('extreme_threshold_normalized', None)
+        if extreme_threshold is None:
+            # Backward compat: compute normalized threshold on the fly from raw
+            raw_et = norm_info.get('extreme_threshold')
+            if raw_et is not None:
+                softening = norm_info.get('asinh_softening', 1000.0)
+                scale = norm_info.get('scale', 1.0)
+                import math
+                extreme_threshold = math.asinh(raw_et / softening) / scale
+                logger.info("Computed normalized extreme_threshold: %.4f from raw %.2f",
+                            extreme_threshold, raw_et)
         print("\nDual-channel mode enabled:")
         print("  Channel 1: Normalized flux")
         if extreme_threshold:
@@ -672,6 +696,7 @@ def load_preprocessed_data(
             augmentation=aug,
             split=split_name,
             extreme_threshold=flare_extreme_threshold,
+            flare_density_threshold=flare_density_threshold,
         )
         ds = SolarFluxDataset(
             file_paths=cube_paths,

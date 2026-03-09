@@ -243,6 +243,7 @@ def build_index(
     augmentation: str = "none",
     split: str = "train",
     extreme_threshold: Optional[float] = None,
+    flare_density_threshold: float = 0.02,
 ) -> Tuple[List[Tuple[int, int, int]], List[bool]]:
     """Build a precomputed sample index for a given data split.
 
@@ -253,8 +254,10 @@ def build_index(
     and test splits always receive ``AUG_NONE`` only.
 
     When *extreme_threshold* is provided, scans **output frames only** for
-    each window to detect extreme flux events (any pixel > threshold).
-    This enables flare-aware weighted sampling downstream.
+    each window to detect extreme flux events using a spatial density
+    criterion: the fraction of pixels with ``|value| > threshold`` must
+    exceed *flare_density_threshold* (default 2%).  This enables
+    flare-aware weighted sampling downstream.
 
     Args:
         file_paths: Ordered list of ``.npy`` file paths.
@@ -266,8 +269,11 @@ def build_index(
         augmentation: One of ``"none"``, ``"balanced"``, ``"aggressive"``.
         split: Split name to build the index for.
         extreme_threshold: If provided, flag windows whose output frames
-            contain any pixel above this value.  ``None`` disables flare
-            detection (all flags ``False``).
+            have spatial density of extreme pixels exceeding
+            *flare_density_threshold*.  ``None`` disables flare detection
+            (all flags ``False``).
+        flare_density_threshold: Fraction of pixels above threshold to
+            flag a window as containing a flare (default 0.02 = 2%).
 
     Returns:
         ``(index, flare_flags)`` where *index* is a list of
@@ -301,12 +307,14 @@ def build_index(
             continue
 
         for window_start in range(0, max_start, stride):
-            # Detect extreme values in OUTPUT frames only
+            # Detect extreme values in OUTPUT frames only via spatial density
             if extreme_threshold is not None:
                 output_frames = mmap[
                     window_start + t_in : window_start + t_in + t_out
                 ]
-                is_flare = bool(np.any(output_frames > extreme_threshold))
+                extreme_pixels = np.abs(output_frames) > extreme_threshold
+                extreme_fraction = extreme_pixels.mean()  # across all output pixels
+                is_flare = bool(extreme_fraction > flare_density_threshold)
             else:
                 is_flare = False
 
