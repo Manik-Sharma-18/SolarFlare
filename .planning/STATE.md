@@ -4,8 +4,8 @@ milestone: v3.0
 milestone_name: Temporal Dynamics & Flare Detection
 status: executing
 stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-03-09T09:57:00Z"
-last_activity: 2026-03-09 — Completed quick-02 fix broken extreme threshold (0.3456 -> 0.277)
+last_updated: "2026-03-09T17:05:00Z"
+last_activity: 2026-03-09 — Completed quick-03 replace bilinear resize with center-crop (437x877)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -71,6 +71,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Quick-02]: Extreme threshold corrected from 0.3456 (99.5th pct) to 0.277 (99th pct in normalized space)
 - [Quick-02]: Flare detection uses spatial density (>2% pixels) instead of np.any() which flagged 100% of windows
 - [Quick-02]: Dual-channel indicator now receives normalized threshold instead of raw (28070) -- channel 2 no longer all zeros
+- [Quick-03]: Center-crop to 437x877 replaces bilinear resize to 448x896 -- preserves 0.36 Mm/pixel physical scale across all cube groups
+- [Quick-03]: Renamed target_size -> crop_size throughout config/main/loader for semantic clarity
+- [Quick-03]: Pure numpy slicing for crop (no torch dependency in spatial normalization path)
 
 ### Pending Todos
 
@@ -89,9 +92,10 @@ None.
 |---|-------------|------|--------|-----------|
 | 001 | Create model architecture document with visuals for non-ML audience | 2026-02-17 | b1a2396 | [001-model-architecture-doc](./quick/001-model-architecture-doc/) |
 | 002 | Fix broken extreme threshold: correct value, dual-channel, spatial density | 2026-03-09 | 08cf9ea | [2-fix-broken-extreme-threshold-correct-val](./quick/2-fix-broken-extreme-threshold-correct-val/) |
+| 003 | Replace bilinear resize with center-crop for physical scale preservation | 2026-03-09 | dca00b3 | [3-fix-spatial-dimension-mismatch-by-center](./quick/3-fix-spatial-dimension-mismatch-by-center/) |
 
 ## Session Continuity
 
-Last session: 2026-03-09T09:57:00Z
-Stopped at: Completed quick-02 fix broken extreme threshold
+Last session: 2026-03-09T17:05:00Z
+Stopped at: Completed quick-03 replace bilinear resize with center-crop
 Resume file: None
