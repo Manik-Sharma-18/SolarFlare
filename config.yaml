@@ -13,8 +13,8 @@ data:
   preprocessed_dir: "./data_processed"  # Path to preprocessed cube files
   t_in: 10                # Number of input timesteps
   t_out: 4                # Number of output timesteps to predict
-  augmentation: "none"       # "none", "balanced" (h/v flips), or "aggressive" (flips + rotations)
-  stride: 2               # Sliding window stride (1 = maximum overlap, higher = fewer samples)
+  augmentation: "balanced"       # "none", "balanced" (h/v flips), or "aggressive" (flips + rotations)
+  stride: 4               # Sliding window stride (1 = maximum overlap, higher = fewer samples)
   split_ratios: [0.7, 0.2, 0.1]  # Train/test/val split ratios (whole-file assignment)
   dual_channel: true      # Enable dual-channel mode (flux + extreme indicator)
   num_workers: 0          # DataLoader workers (0 = main process only, >0 = multiprocessing)
@@ -47,8 +47,8 @@ model:
   temporal_attention: true # ARCH-07: Temporal attention over encoder hidden states
 
 training:
-  batch_size: 4           # Batch size (crop_size enables uniform spatial dims)
-  epochs: 25              # Number of training epochs
+  batch_size: 1           # RNN sequential timestep loops dominate cost; batching gives no throughput gain
+  epochs: 30           # Number of training epochs
   lr: 0.0001               # Learning rate
   weight_decay: 0.00001   # L2 regularization
   tf_start: 0.0           # Initial teacher forcing ratio
@@ -80,11 +80,11 @@ loss:
   temporal_weights: [1.0, 1.5, 2.0, 2.5]  # Per-timestep weighting (linear ramp)
   asymmetric_weight: 0.5    # Weight for asymmetric extreme loss
   asymmetric_alpha: 2.0     # Underestimation costs 2x overestimation above threshold
-  extreme_threshold: 0.277 # 99th percentile in normalized asinh space (~17,400 raw)
+  extreme_threshold: 0.528 # p99.5 in normalized asinh space (scale=7.635, new p99.99-based scale)
 
 # Evaluation metrics configuration
 evaluation:
-  extreme_threshold: 0.277    # 99th percentile in normalized asinh space (~17,400 raw)
+  extreme_threshold: 0.528    # p99.5 in normalized asinh space (scale=7.635, new p99.99-based scale)
   verbose_metrics: false        # Print per-timestep breakdown every epoch (vs only final)
 
 output:

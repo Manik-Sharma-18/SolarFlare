@@ -2,7 +2,7 @@
 import copy
 import logging
 import os
-import tempfile
+import uuid
 from pathlib import Path
 
 import torch
@@ -41,26 +41,19 @@ def _atomic_save(state_dict: dict, filepath: Path) -> None:
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    fd = tempfile.NamedTemporaryFile(
-        dir=filepath.parent,
-        prefix='.tmp_ckpt_',
-        suffix='.pt',
-        delete=False,
-    )
+    tmp_path = filepath.parent / f'.tmp_ckpt_{uuid.uuid4().hex}.pt'
     try:
-        torch.save(state_dict, fd.name)
+        torch.save(state_dict, str(tmp_path))
         # Flush to disk before atomic rename
-        with open(fd.name, 'rb') as f:
+        with open(str(tmp_path), 'rb') as f:
             os.fsync(f.fileno())
-        os.replace(fd.name, str(filepath))
+        os.replace(str(tmp_path), str(filepath))
     except BaseException:
         try:
-            os.unlink(fd.name)
+            tmp_path.unlink(missing_ok=True)
         except OSError:
             pass
         raise
-    finally:
-        fd.close()
 
 
 def save_checkpoint(

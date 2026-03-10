@@ -60,7 +60,7 @@ def compute_normalization(cubes: list, method: str = 'robust',
     # Sample values from all cubes
     all_values = []
     for cube in cubes:
-        all_values.append(cube.flatten()[::100])
+        all_values.append(cube.flatten()[::10])
     all_values = np.concatenate(all_values)
     
     # Compute data statistics (always useful)
@@ -75,7 +75,8 @@ def compute_normalization(cubes: list, method: str = 'robust',
         # Asinh transformation: preserves sign, compresses dynamic range
         # No clipping - extreme values are compressed but preserved
         center = 0.0  # Asinh is symmetric, no centering needed
-        scale = float(np.arcsinh(max(abs(all_values.min()), abs(all_values.max())) / asinh_softening))
+        abs_max_percentile = float(np.percentile(np.abs(all_values), 99.99))
+        scale = float(np.arcsinh(abs_max_percentile / asinh_softening))
         
         # Compute threshold for extreme events (for dual-channel)
         extreme_threshold = float(np.percentile(np.abs(all_values), extreme_threshold_percentile))
@@ -91,6 +92,7 @@ def compute_normalization(cubes: list, method: str = 'robust',
             'extreme_threshold': extreme_threshold,
             'extreme_threshold_normalized': extreme_threshold_normalized,
             'extreme_threshold_percentile': extreme_threshold_percentile,
+            'scale_percentile': 99.99,
             **data_stats,
         }
     
@@ -186,6 +188,7 @@ def preprocess(input_dir: str = './data', output_dir: str = './data_processed',
         if norm_method == 'asinh':
             # Asinh transform: preserves extreme values
             cube_norm = np.arcsinh(cube / norm_params['asinh_softening']) / norm_params['scale']
+            cube_norm = np.clip(cube_norm, -1.0, 1.0)
         else:
             # Linear normalization (robust or fixed)
             cube_norm = (cube - norm_params['center']) / norm_params['scale']

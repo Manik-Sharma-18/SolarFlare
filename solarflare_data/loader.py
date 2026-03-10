@@ -239,7 +239,8 @@ def _compute_norm_params(
         extreme_pct = config.get('extreme_threshold_percentile', 99.5)
 
         center = 0.0  # Asinh is symmetric
-        scale = float(np.arcsinh(max(abs(values.min()), abs(values.max())) / softening))
+        abs_max_percentile = float(np.percentile(np.abs(values), 99.99))
+        scale = float(np.arcsinh(abs_max_percentile / softening))
         extreme_threshold = float(np.percentile(np.abs(values), extreme_pct))
 
         return {
@@ -483,7 +484,7 @@ def load_and_prepare_data(
     for idx in file_assignments["train"]:
         mmap = np.load(cube_paths[idx], mmap_mode='r')
         flat = mmap.reshape(-1)
-        train_values.append(flat[::100])  # sample every 100th value
+        train_values.append(flat[::10])  # sample every 10th value
 
     if len(train_values) == 0:
         raise ValueError("No training files assigned -- cannot compute normalization")
