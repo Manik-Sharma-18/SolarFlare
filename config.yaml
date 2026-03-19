@@ -5,7 +5,7 @@ device: "auto"              # "auto" (detect best), "cuda", "mps", or "cpu"
 
 seed: 42                    # Random seed for reproducibility (torch, numpy, python random)
 
-resume_from: null           # Path to checkpoint file to resume training from (null = start fresh)
+resume_from: "./outputs/checkpoints/checkpoint_epoch_010_valloss_1.1128.pt"           # Path to checkpoint file to resume training from (null = start fresh)
 
 data:
   data_dir: "./data"      # Path to directory containing raw .npy files

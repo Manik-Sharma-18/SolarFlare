@@ -2,15 +2,16 @@
   "normalization": {
     "method": "asinh",
     "center": 0.0,
-    "scale": 12.815314292907715,
+    "scale": 7.634594991784669,
     "asinh_softening": 1000.0,
-    "extreme_threshold": 28070.390625,
-    "extreme_threshold_normalized": 0.3143,
+    "extreme_threshold": 28092.203125,
+    "extreme_threshold_normalized": 0.5277235912602857,
     "extreme_threshold_percentile": 99.5,
+    "scale_percentile": 99.99,
     "data_min": -183903568.0,
-    "data_max": 70023392.0,
-    "data_mean": -145.1856231689453,
-    "data_std": 96832.6484375
+    "data_max": 164590304.0,
+    "data_mean": -113.20262145996094,
+    "data_std": 75971.1171875
   },
   "cubes": [
     {
