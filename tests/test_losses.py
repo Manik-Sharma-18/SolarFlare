@@ -595,6 +595,33 @@ class TestGetLossFunction:
         assert "temporal_diff" in result
         assert "asymmetric" in result
 
+    def test_get_loss_function_extreme_pixel_weight_decoupled(self):
+        """extreme_pixel_weight controls WeightedMAELoss, extreme_weight controls component weight."""
+        config = {
+            "type": "composite",
+            "extreme_weight": 3.0,
+            "extreme_pixel_weight": 25.0,
+            "use_ms_ssim": False,
+        }
+        fn = get_loss_function(config)
+        assert isinstance(fn, CompositeLoss)
+
+        # Component weight in total loss sum
+        assert fn.extreme_weight == 3.0
+
+        # Per-pixel weight inside WeightedMAELoss
+        assert fn.weighted_mae.extreme_weight == 25.0
+
+    def test_get_loss_function_extreme_pixel_weight_default(self):
+        """Without explicit extreme_pixel_weight, WeightedMAELoss gets default 3.0."""
+        config = {"type": "composite", "extreme_weight": 5.0, "use_ms_ssim": False}
+        fn = get_loss_function(config)
+
+        # Component weight is 5.0
+        assert fn.extreme_weight == 5.0
+        # Pixel weight defaults to 3.0 (not tied to extreme_weight)
+        assert fn.weighted_mae.extreme_weight == 3.0
+
     def test_get_loss_function_unknown_raises(self):
         """Unknown loss type should raise ValueError."""
         with pytest.raises(ValueError, match="Unknown loss type"):

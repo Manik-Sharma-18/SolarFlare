@@ -340,6 +340,13 @@ def validate_config(config: dict) -> None:
                 if aa < 1.0:
                     errors.append(f"'loss.asymmetric_alpha' must be >= 1.0, got {aa}")
 
+        # extreme_pixel_weight (optional, default 3.0)
+        epw = loss.get("extreme_pixel_weight")
+        if epw is not None:
+            if _require_type("loss.extreme_pixel_weight", (int, float), epw):
+                if epw < 1.0:
+                    errors.append(f"'loss.extreme_pixel_weight' must be >= 1.0, got {epw}")
+
         # extreme_threshold (optional, default 0.277)
         et_loss = loss.get("extreme_threshold")
         if et_loss is not None:

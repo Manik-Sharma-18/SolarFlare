@@ -161,7 +161,7 @@ class SolarFluxPredictor(nn.Module):
 
         # Temporal attention module (ARCH-07)
         if temporal_attention:
-            self.temporal_attn = TemporalAttention(channels=c3)
+            self.temporal_attn = TemporalAttention(channels=c3, t_max=20)
 
         # Attention gate on skip connections (ARCH-03)
         if attention_gate:

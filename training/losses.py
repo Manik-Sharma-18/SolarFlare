@@ -458,12 +458,13 @@ class CompositeLoss(nn.Module):
         asymmetric_alpha: float = 2.0,
         extreme_threshold: float = 0.277,
         temporal_weights: Optional[List[float]] = None,
+        extreme_pixel_weight: float = 3.0,
     ):
         """
         Args:
             l1_weight: Weight for L1 (MAE) loss
             ssim_weight: Weight for SSIM loss (as 1 - SSIM)
-            extreme_weight: Weight for extreme value loss
+            extreme_weight: Component weight for extreme value loss in total sum
             use_ms_ssim: Use multi-scale SSIM (True) or single-scale (False)
             ssim_data_range: Data range for SSIM computation
             ssim_tiling_threshold: Spatial size above which SSIM tiles to avoid OOM
@@ -473,6 +474,7 @@ class CompositeLoss(nn.Module):
             asymmetric_alpha: Underestimation penalty multiplier
             extreme_threshold: Absolute threshold for extreme region classification
             temporal_weights: Per-timestep weights (default [1.0, 1.5, 2.0, 2.5])
+            extreme_pixel_weight: Per-pixel weight inside WeightedMAELoss for extreme regions
         """
         super().__init__()
         self.l1_weight = l1_weight
@@ -488,7 +490,7 @@ class CompositeLoss(nn.Module):
 
         self.weighted_mae = WeightedMAELoss(
             base_weight=1.0,
-            extreme_weight=extreme_weight if extreme_weight > 1.0 else 3.0,
+            extreme_weight=extreme_pixel_weight,
             threshold=extreme_threshold,
         )
         self.asymmetric_extreme = AsymmetricExtremeLoss(
@@ -624,6 +626,7 @@ def get_loss_function(config: Dict) -> nn.Module:
             asymmetric_alpha=config.get('asymmetric_alpha', 2.0),
             extreme_threshold=config.get('extreme_threshold', 0.277),
             temporal_weights=config.get('temporal_weights', [1.0, 1.5, 2.0, 2.5]),
+            extreme_pixel_weight=config.get('extreme_pixel_weight', 3.0),
         )
 
     elif loss_type == 'weighted':

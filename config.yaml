@@ -5,7 +5,7 @@ device: "auto"              # "auto" (detect best), "cuda", "mps", or "cpu"
 
 seed: 42                    # Random seed for reproducibility (torch, numpy, python random)
 
-resume_from: "./outputs/checkpoints/checkpoint_epoch_010_valloss_1.1128.pt"           # Path to checkpoint file to resume training from (null = start fresh)
+resume_from: null           # Path to checkpoint file to resume training from (null = start fresh)
 
 data:
   data_dir: "./data"      # Path to directory containing raw .npy files
@@ -20,8 +20,8 @@ data:
   num_workers: 0          # DataLoader workers (0 = main process only, >0 = multiprocessing)
   crop_size: [437, 877]  # Center-crop all cubes to uniform (H, W), preserving 0.36 Mm/pixel scale
   # Oversample flare-containing sequences (1.0 = disabled, 3.0 = 3x oversampling)
-  flare_oversample_weight: 1.0
-  flare_density_threshold: 0.02  # Fraction of pixels above extreme threshold to flag as flare (0.02 = 2%)
+  flare_oversample_weight: 5.0   # 5x oversampling for flare sequences
+  flare_density_threshold: 0.005 # 0.5% — top 34% of sequences get 5x oversampling
 
 normalization:
   method: "asinh"         # "asinh" (recommended), "robust", or "fixed"
@@ -42,7 +42,7 @@ model:
   dropout_rate: 0.15      # ARCH-06: MC Dropout for regularization (increased from 0.0)
   # v3.0 architecture features
   use_sa_convlstm: true    # ARCH-01: SA-ConvLSTM cells with Self-Attention Memory
-  delta_scale_init: 100.0  # ARCH-02: Learned delta head scaling (0.0 = disabled)
+  delta_scale_init: 0.5    # ARCH-02: Learned delta head scaling (EDA: delta std=0.228, 0.0 = disabled)
   attention_gate: true     # ARCH-03: Spatial attention gates on skip connections
   temporal_attention: true # ARCH-07: Temporal attention over encoder hidden states
 
@@ -70,7 +70,8 @@ loss:
   type: "composite"       # "l1", "composite", or "weighted"
   l1_weight: 1.0          # Weight for L1 (MAE) loss
   ssim_weight: 0.3        # Weight for SSIM loss (as 1 - SSIM), reduced from 0.5 per research
-  extreme_weight: 3.0     # Weight for extreme value weighted loss (LOSS-06: increased from 1.0)
+  extreme_weight: 3.0     # Component weight in total loss sum (LOSS-06: increased from 1.0)
+  extreme_pixel_weight: 25.0  # Per-pixel weight inside WeightedMAELoss (decoupled from component weight)
   use_ms_ssim: false       # Use multi-scale SSIM (better for larger images)
   ssim_data_range: 2.0    # Data range for SSIM (2.0 for normalized [-1,1])
   ssim_tiling_threshold: 256  # Tile SSIM computation for spatial dims above this (prevents OOM on 512x512+)
@@ -79,7 +80,7 @@ loss:
   temporal_var_lambda: 0.1   # Lambda for temporal variation penalty (gentle nudge)
   temporal_weights: [1.0, 1.5, 2.0, 2.5]  # Per-timestep weighting (linear ramp)
   asymmetric_weight: 0.5    # Weight for asymmetric extreme loss
-  asymmetric_alpha: 2.0     # Underestimation costs 2x overestimation above threshold
+  asymmetric_alpha: 5.0     # Underestimation costs 5x overestimation above threshold
   extreme_threshold: 0.528 # p99.5 in normalized asinh space (scale=7.635, new p99.99-based scale)
 
 # Evaluation metrics configuration

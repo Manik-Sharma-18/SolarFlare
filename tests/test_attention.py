@@ -16,7 +16,7 @@ H, W = 8, 8
 def temporal_attention():
     """Create a TemporalAttention module."""
     from models.attention import TemporalAttention
-    return TemporalAttention(channels=CHANNELS)
+    return TemporalAttention(channels=CHANNELS, t_max=20)
 
 
 @pytest.fixture
@@ -72,6 +72,69 @@ class TestTemporalAttention:
         source = inspect.getsource(temporal_attention.__class__)
         assert "torch.bmm" in source or "bmm(" in source
         assert "scaled_dot_product_attention" not in source
+
+    def test_alibi_bias_shape_and_is_buffer(self, temporal_attention):
+        """alibi_bias should be a buffer (not parameter) with correct shape."""
+        assert hasattr(temporal_attention, 'alibi_bias')
+        # Should be a buffer, not a parameter
+        param_names = {n for n, _ in temporal_attention.named_parameters()}
+        assert 'alibi_bias' not in param_names, "alibi_bias should be a buffer, not a parameter"
+        # Shape: (1, 1, t_max)
+        assert temporal_attention.alibi_bias.shape == (1, 1, 20)
+
+    def test_alibi_bias_recency_ordering(self, temporal_attention):
+        """ALiBi bias should increase monotonically (most recent = highest/0.0)."""
+        bias = temporal_attention.alibi_bias.squeeze()  # (t_max,)
+        # Each successive position should have >= bias than previous
+        for i in range(1, len(bias)):
+            assert bias[i].item() >= bias[i - 1].item(), (
+                f"ALiBi bias not monotonically increasing: pos {i-1}={bias[i-1].item()}, pos {i}={bias[i].item()}"
+            )
+        # Last position (most recent) should be 0.0
+        assert abs(bias[-1].item()) < 1e-6, f"Most recent bias should be 0.0, got {bias[-1].item()}"
+
+    def test_pos_embed_is_parameter_and_zeros(self):
+        """pos_embed should be a learnable parameter initialized to zeros."""
+        from models.attention import TemporalAttention
+        attn = TemporalAttention(channels=CHANNELS, t_max=10)
+        assert hasattr(attn, 'pos_embed')
+        # Should be a parameter
+        param_names = {n for n, _ in attn.named_parameters()}
+        assert 'pos_embed' in param_names, "pos_embed should be a learnable parameter"
+        # Initialized to zeros
+        assert torch.allclose(attn.pos_embed, torch.zeros_like(attn.pos_embed)), (
+            "pos_embed should be initialized to zeros"
+        )
+        assert attn.pos_embed.shape == (10, CHANNELS)
+
+    def test_identical_states_produce_nonuniform_attention(self):
+        """Identical encoder states should produce non-uniform attention due to ALiBi."""
+        from models.attention import TemporalAttention
+        attn = TemporalAttention(channels=CHANNELS, t_max=20)
+        attn.eval()
+
+        decoder_state = torch.randn(BATCH, CHANNELS, H, W)
+        # All encoder states are identical
+        single_state = torch.randn(BATCH, CHANNELS, H, W)
+        T = 10
+        encoder_states = [single_state.clone() for _ in range(T)]
+
+        with torch.no_grad():
+            _, attn_weights = attn(decoder_state, encoder_states)
+
+        # Without ALiBi, identical states would give uniform 1/T attention
+        uniform = 1.0 / T
+        # With ALiBi, recent timesteps should get higher weight
+        assert attn_weights[0, -1].item() > attn_weights[0, 0].item(), (
+            f"Most recent timestep should have higher attention than oldest: "
+            f"last={attn_weights[0, -1].item():.4f}, first={attn_weights[0, 0].item():.4f}"
+        )
+        # Entropy should be less than uniform (log(T) = log(10) ≈ 2.303)
+        entropy = -(attn_weights * torch.log(attn_weights + 1e-10)).sum(dim=-1)
+        max_entropy = torch.log(torch.tensor(float(T)))
+        assert entropy[0].item() < max_entropy.item(), (
+            f"Entropy should be less than uniform: {entropy[0].item():.4f} vs max {max_entropy.item():.4f}"
+        )
 
 
 class TestAttentionGate:
