@@ -37,7 +37,7 @@ model:
   output_channels: 1      # Output channels (typically 1 for flux prediction)
   channels: [32, 64, 128]  # ARCH-04: Channel progression (widened from [16, 32, 64])
   kernel_size: 5          # ARCH-05: Kernel size (increased from 3)
-  downsample_input: true  # Apply 2x spatial downsampling at input (saves VRAM)
+  downsample_input: false  # Full resolution (437x877) — 2x downsample capped SSIM at 0.16
   use_checkpointing: false # Gradient checkpointing (saves ~40% VRAM, ~20% slower)
   dropout_rate: 0.15      # ARCH-06: MC Dropout for regularization (increased from 0.0)
   # v3.0 architecture features

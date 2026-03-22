@@ -43,10 +43,6 @@ class TemporalAttention(nn.Module):
         # Learnable positional embedding (init zeros = starts as vanilla attention)
         self.pos_embed = nn.Parameter(torch.zeros(t_max, proj_dim))
 
-        # ALiBi fixed recency bias (buffer, not learnable)
-        # slope=0.1: for T=10, bias ranges from -0.9 (oldest) to 0.0 (most recent)
-        alibi_slopes = -0.1 * torch.arange(t_max - 1, -1, -1, dtype=torch.float32)
-        self.register_buffer('alibi_bias', alibi_slopes.unsqueeze(0).unsqueeze(0))  # (1, 1, T_max)
 
     def forward(
         self,
@@ -81,9 +77,8 @@ class TemporalAttention(nn.Module):
             self.v_proj(e) for e in encoder_states
         ], dim=1)  # (B, T, proj_dim, H, W)
 
-        # Attention logits with ALiBi recency bias
+        # Attention logits
         logits = torch.bmm(q.unsqueeze(1), keys.transpose(1, 2)) * self.scale  # (B, 1, T)
-        logits = logits + self.alibi_bias[:, :, :T]  # ALiBi recency bias
         attn = torch.softmax(logits, dim=-1)  # (B, 1, T)
 
         # Weighted combination of values
