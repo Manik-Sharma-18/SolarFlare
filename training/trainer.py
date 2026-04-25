@@ -622,6 +622,62 @@ def train_model(
             normalization_params = ckpt_norm_params
         print(f"Resumed from epoch {start_epoch - 1}. Continuing to epoch {epochs}.")
 
+    # Transfer learning from pretrained checkpoint
+    transfer_config = config.get('transfer_learning')
+    _unfreeze_epoch = None  # epoch at which to unfreeze encoder
+    if transfer_config and transfer_config.get('pretrained_checkpoint'):
+        from utils.transfer import (
+            load_pretrained_weights, freeze_encoder,
+            get_finetune_param_groups, unfreeze_all,
+        )
+        from utils.checkpoint import load_checkpoint_for_transfer
+
+        ptc_path = transfer_config['pretrained_checkpoint']
+        print(f"\nTransfer learning from: {ptc_path}")
+
+        loaded, skipped, reinited = load_pretrained_weights(
+            model, ptc_path,
+            reinit_mismatched=transfer_config.get('reinit_input_layers', True),
+            device=device,
+        )
+        print(f"  Loaded {len(loaded)} parameter tensors from pretrained model")
+        print(f"  Skipped {len(skipped)} (shape mismatch or missing)")
+        print(f"  Reinitialized {len(reinited)} layers")
+
+        # Freeze encoder if configured
+        if transfer_config.get('freeze_encoder', False):
+            frozen_names = freeze_encoder(model)
+            print(f"  Frozen {len(frozen_names)} encoder parameters")
+
+            uae = transfer_config.get('unfreeze_after_epochs', 0)
+            if uae > 0:
+                _unfreeze_epoch = start_epoch + uae
+                print(f"  Will unfreeze encoder at epoch {_unfreeze_epoch}")
+
+        # Rebuild optimizer with differential LR
+        if transfer_config.get('reset_optimizer', True):
+            lr_scale = transfer_config.get('lr_scale_pretrained', 0.1)
+            param_groups = get_finetune_param_groups(model, lr, lr_scale)
+            optimizer = torch.optim.AdamW(param_groups, weight_decay=weight_decay)
+            print(f"  Fresh optimizer: new layers lr={lr:.6f}, pretrained lr={lr * lr_scale:.6f}")
+
+        # Rebuild scheduler with new optimizer
+        if transfer_config.get('reset_scheduler', True) and scheduler_enabled:
+            if scheduler_type == 'cosine':
+                eta_min = scheduler_config.get('cosine_eta_min', 1e-6)
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer, T_max=epochs, eta_min=eta_min
+                )
+            elif scheduler_type == 'step':
+                step_size = scheduler_config.get('step_size', 10)
+                gamma = scheduler_config.get('step_gamma', 0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(
+                    optimizer, step_size=step_size, gamma=gamma
+                )
+            # Re-create scaler too
+            scaler = get_grad_scaler(use_amp, device)
+            print(f"  Fresh scheduler ({scheduler_type}) and grad scaler")
+
     # Checkpoint directory setup
     checkpoints_dir = save_dir / 'checkpoints'
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -671,6 +727,23 @@ def train_model(
 
     try:
         for epoch in range(start_epoch, epochs + 1):
+            # Unfreeze encoder at scheduled epoch (transfer learning)
+            if _unfreeze_epoch is not None and epoch == _unfreeze_epoch:
+                from utils.transfer import unfreeze_all, get_finetune_param_groups
+                unfreeze_all(model)
+                lr_scale = transfer_config.get('lr_scale_pretrained', 0.1)
+                param_groups = get_finetune_param_groups(model, lr, lr_scale)
+                optimizer = torch.optim.AdamW(param_groups, weight_decay=weight_decay)
+                remaining = epochs - epoch + 1
+                if scheduler_enabled and scheduler_type == 'cosine':
+                    eta_min = scheduler_config.get('cosine_eta_min', 1e-6)
+                    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                        optimizer, T_max=remaining, eta_min=eta_min
+                    )
+                scaler = get_grad_scaler(use_amp, device)
+                print(f"  ** Encoder unfrozen at epoch {epoch} (remaining: {remaining}) **")
+                _unfreeze_epoch = None  # only unfreeze once
+
             # Teacher forcing schedule: linear decay
             tf_ratio = max(0.0, tf_start * (1 - epoch / epochs))
             current_lr = optimizer.param_groups[0]['lr']

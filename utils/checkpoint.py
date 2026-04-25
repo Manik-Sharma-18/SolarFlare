@@ -333,3 +333,40 @@ def load_checkpoint_for_inference(filepath, device=None):
         )
 
     return checkpoint, device
+
+
+def load_checkpoint_for_transfer(filepath, model, device=None, reinit_mismatched=True):
+    """
+    Load a pretrained checkpoint for transfer learning.
+
+    Unlike :func:`load_checkpoint_for_resume`, this function:
+    - Uses partial key matching (``strict=False``)
+    - Does NOT restore optimizer, scheduler, or scaler state
+    - Does NOT restore epoch, patience, or best_val_loss
+    - Handles shape mismatches by reinitializing affected layers
+
+    Args:
+        filepath: Path to pretrained checkpoint file.
+        model: Target model (may have different ``input_channels``).
+        device: Target device. If ``None``, auto-resolved.
+        reinit_mismatched: Reinitialize layers with shape mismatches.
+
+    Returns:
+        Tuple of ``(loaded_keys, skipped_keys, reinitialized_keys)``.
+    """
+    from utils.transfer import load_pretrained_weights
+
+    if device is None:
+        device = resolve_device('auto')
+
+    loaded, skipped, reinited = load_pretrained_weights(
+        model, str(filepath),
+        reinit_mismatched=reinit_mismatched,
+        device=device,
+    )
+
+    logger.info(
+        "Transfer from %s: loaded=%d, skipped=%d, reinit=%d",
+        filepath, len(loaded), len(skipped), len(reinited),
+    )
+    return loaded, skipped, reinited

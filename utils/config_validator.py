@@ -455,6 +455,43 @@ def validate_config(config: dict) -> None:
             logger.warning("Config warning: resume_from does not end with .pt: %s", resume_from)
 
     # ------------------------------------------------------------------ #
+    # transfer_learning section (optional)
+    # ------------------------------------------------------------------ #
+    transfer = config.get("transfer_learning")
+    if transfer is not None:
+        if not isinstance(transfer, dict):
+            errors.append("'transfer_learning' must be a mapping")
+        else:
+            ptc = transfer.get("pretrained_checkpoint")
+            if ptc is not None:
+                if not isinstance(ptc, str):
+                    errors.append("'transfer_learning.pretrained_checkpoint' must be a string")
+                elif not Path(ptc).exists():
+                    errors.append(f"transfer_learning.pretrained_checkpoint not found: {ptc}")
+
+            mode = transfer.get("mode", "finetune")
+            if mode not in ("finetune", "feature_extract"):
+                errors.append(
+                    f"'transfer_learning.mode' must be 'finetune' or 'feature_extract', got '{mode}'"
+                )
+
+            uae = transfer.get("unfreeze_after_epochs")
+            if uae is not None and (not isinstance(uae, int) or uae < 0):
+                errors.append("'transfer_learning.unfreeze_after_epochs' must be a non-negative int")
+
+            lrsp = transfer.get("lr_scale_pretrained")
+            if lrsp is not None:
+                if not isinstance(lrsp, (int, float)) or lrsp <= 0 or lrsp > 1.0:
+                    errors.append("'transfer_learning.lr_scale_pretrained' must be in (0, 1.0]")
+
+            # Mutual exclusion with resume_from
+            if resume_from is not None and resume_from != "" and ptc is not None:
+                errors.append(
+                    "Cannot use both 'resume_from' and 'transfer_learning.pretrained_checkpoint'. "
+                    "Use resume_from to continue training, or transfer_learning to fine-tune."
+                )
+
+    # ------------------------------------------------------------------ #
     # Warnings (do not abort)
     # ------------------------------------------------------------------ #
     lr = training.get("lr")

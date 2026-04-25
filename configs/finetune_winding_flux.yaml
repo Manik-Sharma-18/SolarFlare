@@ -1,0 +1,107 @@
+# Winding Flux Fine-Tuning Configuration
+# ========================================
+# Fine-tune a pretrained magnetogram model on winding flux data.
+# Requires: pretrained checkpoint from pretrain_magnetogram.yaml run.
+
+device: "auto"
+
+seed: 42
+
+resume_from: null  # Mutually exclusive with transfer_learning
+
+# Transfer learning configuration
+transfer_learning:
+  pretrained_checkpoint: "./outputs_pretrain/checkpoints/best_model.pt"
+  mode: "finetune"             # "finetune" (train all) or "feature_extract" (frozen encoder only)
+  freeze_encoder: true          # Freeze encoder layers initially
+  unfreeze_after_epochs: 5      # Unfreeze encoder after N epochs for full fine-tuning
+  reinit_input_layers: true     # Reinitialize input-channel-dependent layers (C=1 → C=2)
+  reset_optimizer: true         # Fresh optimizer (don't inherit pretrain momentum)
+  reset_scheduler: true         # Fresh scheduler
+  lr_scale_pretrained: 0.1      # Pretrained layers get 10x lower LR after unfreezing
+
+data:
+  data_dir: "./data"
+  use_preprocessed: true
+  preprocessed_dir: "./data_processed"
+  t_in: 10
+  t_out: 4
+  augmentation: "balanced"
+  stride: 4
+  split_ratios: [0.7, 0.2, 0.1]
+  dual_channel: true       # Flux + extreme indicator
+  num_workers: 0
+  crop_size: [437, 877]
+  flare_oversample_weight: 5.0
+  flare_density_threshold: 0.005
+
+normalization:
+  method: "asinh"
+  asinh_softening: 1000.0  # Winding flux units (different from magnetogram 500.0)
+  extreme_threshold_percentile: 99
+
+model:
+  input_channels: 2        # Dual channel (flux + extreme)
+  output_channels: 1
+  channels: [32, 64, 128]  # Must match pretrained model
+  kernel_size: 5            # Must match pretrained model
+  downsample_input: false   # Must match pretrained model
+  use_checkpointing: false
+  dropout_rate: 0.15
+  use_sa_convlstm: true
+  delta_scale_init: 0.5
+  attention_gate: true
+  temporal_attention: true
+
+training:
+  batch_size: 1
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.00001
+  tf_start: 0.0
+  patience: 18
+  use_amp: true
+  grad_clip: 0.5
+  scheduler:
+    type: "cosine"
+    cosine_eta_min: 0.000001
+
+loss:
+  type: "composite"
+  l1_weight: 1.0
+  ssim_weight: 0.3
+  extreme_weight: 3.0
+  extreme_pixel_weight: 25.0
+  use_ms_ssim: false
+  ssim_data_range: 2.0
+  ssim_tiling_threshold: 256
+  temporal_diff_weight: 1.0
+  temporal_var_lambda: 0.1
+  temporal_weights: [1.0, 1.5, 2.0, 2.5]
+  asymmetric_weight: 0.5
+  asymmetric_alpha: 5.0
+  extreme_threshold: 0.528
+
+evaluation:
+  extreme_threshold: 0.528
+  verbose_metrics: false
+
+output:
+  save_dir: "./outputs"
+  checkpoint_name: "best_model.pt"
+  save_history: true
+  save_visualizations: true
+
+logging:
+  progress_bar: true
+  log_interval: 10
+
+error_handling:
+  max_consecutive_nan: 10
+  grad_norm_warning_threshold: 100.0
+  data_failure_threshold: 0.1
+
+uncertainty:
+  enabled: false
+  n_samples: 20
+  save_uncertainty_maps: true

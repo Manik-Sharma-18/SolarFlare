@@ -189,7 +189,17 @@ def run_training(config: dict):
     print(f"Input downsampling: {config['model']['downsample_input']}")
     print(f"Gradient checkpointing: {use_checkpointing}")
     print(f"Dropout rate: {dropout_rate}")
-    
+
+    # Transfer learning info
+    transfer_config = config.get('transfer_learning')
+    if transfer_config and transfer_config.get('pretrained_checkpoint'):
+        print(f"\nTransfer learning mode: {transfer_config.get('mode', 'finetune')}")
+        print(f"  Pretrained checkpoint: {transfer_config['pretrained_checkpoint']}")
+        print(f"  Freeze encoder: {transfer_config.get('freeze_encoder', False)}")
+        unfreeze = transfer_config.get('unfreeze_after_epochs', 0)
+        if unfreeze > 0:
+            print(f"  Unfreeze after: {unfreeze} epochs")
+
     # Extract normalization params for checkpoint embedding
     normalization_params = metadata.get('normalization', {})
 
@@ -205,6 +215,7 @@ def run_training(config: dict):
         'error_handling': config.get('error_handling', {}),
         'resume_from': config.get('resume_from'),
         'evaluation': config.get('evaluation', {}),
+        'transfer_learning': config.get('transfer_learning'),
     }
 
     # Train

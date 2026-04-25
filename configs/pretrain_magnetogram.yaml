@@ -1,0 +1,96 @@
+# Magnetogram Pretraining Configuration
+# =======================================
+# Pretrain the encoder on SDO/HMI SHARP magnetogram sequences.
+# After pretraining, fine-tune on winding flux data using finetune_winding_flux.yaml.
+
+device: "auto"
+
+seed: 42
+
+resume_from: null
+
+data:
+  data_dir: "./data_magnetogram"
+  use_preprocessed: true
+  preprocessed_dir: "./data_magnetogram_processed"
+  t_in: 10
+  t_out: 4
+  augmentation: "balanced"
+  stride: 2               # Lower stride — abundant magnetogram data
+  split_ratios: [0.8, 0.1, 0.1]
+  dual_channel: false      # Single channel (LoS magnetogram only)
+  num_workers: 4
+  crop_size: [256, 256]    # Common magnetogram patch size
+  flare_oversample_weight: 1.0  # No oversampling needed (abundant data)
+  flare_density_threshold: 0.005
+
+normalization:
+  method: "asinh"
+  asinh_softening: 500.0   # Magnetogram Gauss units (different from winding flux 1000.0)
+  extreme_threshold_percentile: 99
+
+model:
+  input_channels: 1        # Single channel (LoS magnetic field)
+  output_channels: 1
+  channels: [32, 64, 128]  # Must match fine-tuning config
+  kernel_size: 5            # Must match fine-tuning config
+  downsample_input: false   # Must match fine-tuning config
+  use_checkpointing: true   # Save memory with large dataset
+  dropout_rate: 0.15
+  use_sa_convlstm: true
+  delta_scale_init: 0.5
+  attention_gate: true
+  temporal_attention: true
+
+training:
+  batch_size: 2            # Larger batch (more data available)
+  epochs: 50
+  lr: 0.0003               # Slightly higher for pretraining
+  weight_decay: 0.00001
+  tf_start: 0.5            # Teacher forcing during pretraining
+  patience: 15
+  use_amp: true
+  grad_clip: 0.5
+  scheduler:
+    type: "cosine"
+    cosine_eta_min: 0.000001
+
+loss:
+  type: "composite"
+  l1_weight: 1.0
+  ssim_weight: 0.3
+  extreme_weight: 1.0      # Lower extreme weight for pretraining
+  extreme_pixel_weight: 10.0
+  use_ms_ssim: false
+  ssim_data_range: 2.0
+  ssim_tiling_threshold: 256
+  temporal_diff_weight: 1.0
+  temporal_var_lambda: 0.1
+  temporal_weights: [1.0, 1.5, 2.0, 2.5]
+  asymmetric_weight: 0.5
+  asymmetric_alpha: 5.0
+  extreme_threshold: 0.528
+
+evaluation:
+  extreme_threshold: 0.528
+  verbose_metrics: false
+
+output:
+  save_dir: "./outputs_pretrain"
+  checkpoint_name: "pretrained_magnetogram.pt"
+  save_history: true
+  save_visualizations: true
+
+logging:
+  progress_bar: true
+  log_interval: 10
+
+error_handling:
+  max_consecutive_nan: 10
+  grad_norm_warning_threshold: 100.0
+  data_failure_threshold: 0.1
+
+uncertainty:
+  enabled: false
+  n_samples: 20
+  save_uncertainty_maps: true
