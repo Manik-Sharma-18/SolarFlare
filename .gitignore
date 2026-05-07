@@ -96,6 +96,7 @@ Thumbs.db
 # SolarFlare training queue local state
 .sf_user
 .controller/
+.claude/scheduled_tasks.lock
 
 # Backup / copy directories
 outputs copy/
