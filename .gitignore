@@ -93,6 +93,19 @@ Thumbs.db
 # Logs
 *.log
 
+# SolarFlare training queue local state
+.sf_user
+.controller/
+
+# Backup / copy directories
+outputs copy/
+outputs copy */
+outputs_v5/
+outputs_v5_sanity/
+
+# Third-party model weights (HF cache, Surya download attempt residue)
+third_party/
+
 # Environment variables
 .env
 .env.local

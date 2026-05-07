@@ -1,0 +1,80 @@
+# V5.0 Path B — JEPA-from-scratch (ViT context + EMA target + block-causal predictor)
+# See ARCHITECTURE_V5_JEPA.md + docs/V5_JEPA/01_path_a.md
+# (File name kept as v5_path_a.yaml for compatibility; Path A/Surya was abandoned —
+# HelioSpectFormer is hard-locked to img_size=4096 / 60-min cadence / 13ch.)
+
+data:
+  zarr_dir: data/
+  manifest_path: data/manifest.json
+  t_in: 10
+  t_out: 4
+  pixel_scale_mm: 0.364
+  cadence_min: 12
+  norm: zscore_per_cube
+  augment: d4_chiral
+  splits: by_harp_id
+  val_fraction: 0.2
+  split_seed: 0
+  num_workers: 4
+  bucket_by_shape: true
+  reject_window_with_time_zero: true
+
+model:
+  input_adapter:
+    in_ch: 1
+    out_ch: 13
+    patch_size: 16
+    pad_mode: constant
+    valid_mask_routing: separate
+  encoder:
+    dim: 384            # ViT-Small
+    layers: 12
+    heads: 6
+    mlp_ratio: 4
+  predictor:
+    layers: 6
+    hidden: 384
+    heads: 6
+    mlp_ratio: 4
+    dropout: 0.0
+    drop_path: 0.1
+    block_causal: true
+    rope3d_units: physical
+  pixel_decoder:
+    enabled: false
+    tap_layers: [4, 8, 12]
+    upsample: bilinear
+
+loss:
+  primary: smooth_l1_embedding
+  pixel_aux_weight: 0.0
+
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.04
+  lr: 3.0e-4
+  schedule: cosine_warmup
+  warmup_pct: 0.10
+  min_lr_ratio: 0.01
+  epochs: 50
+  batch_size: 1
+  grad_accum_steps: 4
+  grad_clip: 1.0
+  precision: bf16
+  target_ema_decay: 0.996
+  grad_checkpoint: true
+  compile: default            # off | default | reduce-overhead | max-autotune (CUDA only)
+  curriculum:
+    one_step_pct: 0.30
+    half_step_pct: 0.30
+    full_step_pct: 0.40
+
+logging:
+  out_dir: outputs_v5/
+  log_every: 10
+  val_every_epoch: 1
+  save_every_epoch: 1
+
+device:
+  prefer: cuda

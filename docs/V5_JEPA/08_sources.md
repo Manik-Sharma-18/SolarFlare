@@ -1,0 +1,32 @@
+# 08 — Sources
+
+Primary references (arXiv + dates):
+- V-JEPA 2 — 2506.09985, Jun 2025 (Meta, world model + zero-shot robot)
+- V-JEPA 2.1 — 2603.14482, 2026 (dense-prediction extension)
+- V-JEPA — 2404.08471, Apr 2024 (Meta, video JEPA)
+- I-JEPA — 2301.08243, Jan 2023 (Meta, image JEPA)
+- LeCun position paper — OpenReview 2022 (JEPA doctrine)
+- LeJEPA — 2511.08544, Nov 2025 (Balestriero & LeCun, no-EMA variant)
+- MC-JEPA — 2307.12698, Jul 2023 (multi-task content+motion)
+- Brain-JEPA — NeurIPS 2024 (cross-ROI/time masking)
+- SAR-JEPA — github.com/waterdisappear/SAR-JEPA (gradient-feature target)
+- DPT — 2103.13413, Mar 2021 (dense prediction transformer)
+- SegFormer — 2105.15203, May 2021 (all-MLP decoder)
+- LoRA — 2106.09685, Jun 2021
+- LP-FT — 2202.10054, Feb 2022 (Kumar et al., freeze→FT)
+- Efficient Probing — 2506.10178, Jun 2025 (cheaper attentive probe)
+- SimVPv2 — 2211.12509, Nov 2022
+- OpenSTL — 2306.11249, Jun 2023 (benchmark library)
+- Earthformer — 2207.05833, Jul 2022 (cuboid attention)
+- Aurora — 2405.13063, May 2024 (1.3B atmospheric FM, LoRA rollout)
+- ClimaX — 2301.10343, Jan 2023 (randomized lead-time pretext)
+- W-MAE — 2304.08754, Apr 2023 (MAE pretrain → forecast finetune)
+- Prithvi-WxC — 2409.13598, Sep 2024 (mixed mask+forecast objective)
+- VideoMAE — 2203.12602, Mar 2022
+- VideoMAEv2 — 2303.16727, Mar 2023
+- MaskViT — 2206.11894, Jun 2022 (mask-pretrain → video predict)
+- **Surya — 2508.14112, Aug 2025 (NASA-IMPACT/IBM heliophysics FM)**
+- **SuryaBench — 2508.14107, Aug 2025 (SDO ML-ready dataset)**
+- SDO-FM — 2410.02530, Oct 2024
+- Solar foundational transformers — 2510.23400, Oct 2025
+- Pathak Context Encoders — 1604.07379, Apr 2016 (V5 draft inspiration, now superseded)
