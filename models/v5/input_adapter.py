@@ -33,11 +33,40 @@ def make_token_pad_mask(
     hp = (h + pad_h) // patch
     wp = (w + pad_w) // patch
     mask = torch.ones(hp, wp, dtype=torch.bool, device=device)
-    if pad_h:
-        mask[-(pad_h // patch):, :] = False
-    if pad_w:
-        mask[:, -(pad_w // patch):] = False
+    # Only mark token rows/cols that are FULL padding. A partial pad (pad_h<patch)
+    # fills an existing last token row — those tokens are still partly real.
+    n_pad_rows = pad_h // patch
+    n_pad_cols = pad_w // patch
+    if n_pad_rows > 0:
+        mask[-n_pad_rows:, :] = False
+    if n_pad_cols > 0:
+        mask[:, -n_pad_cols:] = False
     return mask
+
+
+def valid_pixel_to_token_mask(
+    valid_mask: torch.Tensor | None,
+    hp: int, wp: int, Hp_pad: int, Wp_pad: int,
+    patch: int, threshold: float,
+    device: torch.device,
+) -> torch.Tensor:
+    """Pool a per-pixel valid mask [B,T,1,H,W] (bool) → per-token mask [B,T,hp,wp] (bool).
+
+    Pad to (Hp_pad, Wp_pad) with False (pad is invalid), avg-pool the real-fraction
+    over each `patch×patch` block, threshold to bool. Returns broadcast-friendly
+    [1,1,hp,wp] all-True if `valid_mask` is None.
+    """
+    if valid_mask is None:
+        return torch.ones(1, 1, hp, wp, dtype=torch.bool, device=device)
+    B, T = valid_mask.shape[:2]
+    H, W = valid_mask.shape[-2:]
+    v = valid_mask.reshape(B * T, 1, H, W).float()
+    pad_h = Hp_pad - H
+    pad_w = Wp_pad - W
+    if pad_h or pad_w:
+        v = F.pad(v, (0, pad_w, 0, pad_h), value=0.0)
+    v_pool = F.avg_pool2d(v, kernel_size=patch, stride=patch)
+    return (v_pool > threshold).reshape(B, T, hp, wp)
 
 
 class InputAdapter(nn.Module):
