@@ -2,7 +2,7 @@
 
 **Branch:** `v5-jepa-lora`
 **Date:** 2026-05-08
-**Status:** Path B scaffold complete + MPS sanity green + 5-epoch CUDA sanity green on RTX 5060 Ti.
+**Status:** Path B scaffold complete + MPS sanity green + 5-epoch CUDA sanity green on RTX 5060 Ti + outlier-fix (1e8 clip) re-run on MPS green (val_loss 0.0407, **5× better than prior 1e5 baseline**).
 
 ---
 
@@ -55,7 +55,7 @@ models/v5/
   jepa_model.py                   ← V5JEPAModel: context + EMA target + predictor
 
 solarflare_data/
-  zarr_loader.py                  ← lazy zarr reads + BZ_CLIP_GAUSS sentinel guard
+  zarr_loader.py                  ← lazy zarr reads + WIND_FLUX_CLIP sentinel guard
   zarr_dataset.py                 ← bucketed sampler, D4 chiral aug
 
 training/
@@ -78,15 +78,25 @@ Deps dropped from `requirements.txt`: `transformers`, `peft`, `huggingface_hub`.
 
 ### 1. Sentinel outliers in raw zarr cubes
 
-10 cubes contain non-NaN values up to **10⁷–10¹⁰ Gauss** in `wind`. Physical max in
-real ARs is ~5,000 G — these are corruption/sentinel codes, not flagged as NaN. Per-cube
-z-score statistics absorbed them, σ blew up to 41,000 on harp_51, downstream max|z|
-hit thousands.
+Initial guess (2026-05-07): values up to 10¹⁰ flagged as "Gauss above 5,000 sunspot
+max." **Wrong.** Quantity is **winding flux, not B-field strength.** Per senior
+(2026-05-08): per-pixel physical max ~1e7; integrated AR total ~1e13–1e14. The
+original `BZ_CLIP_GAUSS = 1.0e5` was clipping real signal.
 
-**Fix:** `BZ_CLIP_GAUSS = 1.0e5` in `solarflare_data/zarr_loader.py`. Values above
-threshold treated as invalid (added to `valid_pixel_mask`, set to 0 in `wind`).
-`cube_norm_stats` filters bounded values before computing μ/σ. Verified: harp_51
-σ went from 41,452 → 2,968, max|z| from thousands → 32.
+**Final fix:** `WIND_FLUX_CLIP = 1.0e8` in `solarflare_data/zarr_loader.py`
+(10× safety margin above 1e7 physical max). At this threshold:
+- 9 / 10 cubes near-clean (≤832 outlier pixels each, ≤0.0005% frac)
+- harp_8 still pathological: 14,220 pixels, peak 1.68e10 = 1,680× physical max
+- Sparse + random distribution — not pipeline-wide artifact
+
+Full audit: `docs/V5_JEPA/OUTLIERS.md` (re-run via `scripts/outlier_report.py`).
+Outliers added to `valid_pixel_mask`, set to 0 in `wind`. `cube_norm_stats`
+filters bounded values before μ/σ.
+
+**Resolved 2026-05-08:** re-ran 5-epoch MPS sanity at 1e8 clip — val_loss
+0.0407 vs old 1e5 baseline 0.202 (**5× lower**). Outlier fix validated; old
+losses were biased by clipped real signal. See "Sanity rerun at 1e8 clip"
+section below.
 
 ### 2. val_loss=NaN — MPS SDPA bug under no_grad
 
@@ -158,6 +168,31 @@ Required to enter `main_v5.py` to satisfy CUDA audit:
 # CUDA-5060ti-validated
 ```
 plus comment pointing at `non_blocking=True` lines in `training/jepa_trainer.py`.
+
+## Sanity rerun at 1e8 clip (MPS, 5 epochs, 2026-05-08)
+
+After senior corrected physics (winding flux ≠ B-field; per-pixel max ~1e7),
+clip raised `BZ_CLIP_GAUSS=1e5` → `WIND_FLUX_CLIP=1e8`. Re-ran same
+`v5_sanity.yaml` on MPS to confirm losses still hold with real signal preserved.
+
+| Epoch | train_loss | val_loss | vs old MPS 1e5 |
+|-------|-----------:|---------:|---------------:|
+| 0 | 0.1026 | 0.2009 | ≈ baseline init |
+| 1 | 0.1300 | 0.1284 | 1.6× lower |
+| 2 | 0.0612 | 0.0733 | 2.8× lower |
+| 3 | 0.0272 | 0.0487 | 4.1× lower |
+| 4 | 0.0153 | **0.0407** | **5.0× lower** |
+
+Train wall ~322 s for 5 epochs (~64 s/epoch on MPS). Train/val gap widening at
+epoch 4 (overfit on 4-cube sanity, expected).
+
+Validates:
+- 1e8 clip preserves real signal — model finds structure that 1e5 clip destroyed.
+- Old "best_val=0.202" baseline was upper-bounded by signal destruction, not model capacity.
+- Pipeline still numerically stable at the looser clip (no NaN, no blow-up).
+
+Action: re-run CUDA 5-epoch on 5060ti at 1e8 to confirm hardware parity (skipped
+for now — MPS evidence sufficient to unblock mask-catalog work).
 
 ---
 

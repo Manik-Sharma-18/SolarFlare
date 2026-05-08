@@ -6,8 +6,11 @@ Per docs/V5_JEPA/06_data.md §11.1c–§11.5:
 - NaN→0 cast at loader boundary; emit valid_pixel_mask = ~isnan(orig) as second stream
 - Loader returns fp32 (model casts to bf16 at compute boundary)
 - Sparse-chunk fill is silent — never retry, never interpolate
-- Sentinel outlier guard: |Bz| > BZ_CLIP_GAUSS treated as invalid (data quality —
-  observed values up to 1e10 G in raw cubes, physical extreme sunspot ~5000 G).
+- Sentinel outlier guard: |wind| > WIND_FLUX_CLIP treated as invalid (data quality).
+  Quantity is winding flux (NOT magnetic field strength). Per senior: per-pixel
+  physical max ~1e7; integrated AR total ~1e13–1e14. Threshold 1e8 = 10× safety
+  margin above physical per-pixel max. Observed pathology: harp_8 has values up to
+  1.68e10 (1,680× physical max).
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ import numpy as np
 import zarr
 
 
-BZ_CLIP_GAUSS: float = 1.0e5  # |Bz| above this = sentinel/corruption, not physical
+WIND_FLUX_CLIP: float = 1.0e8  # per-pixel winding flux; physical max ~1e7 (senior), 10× margin
 
 
 @dataclass
@@ -55,7 +58,7 @@ def read_window(cube: CubeHandle, t_start: int, length: int) -> tuple[np.ndarray
             f"Window [{t_start}:{t_start + length}] out of bounds for cube T={cube.shape[2]}"
         )
     raw = np.asarray(cube.wind[:, :, t_start:t_start + length], dtype=np.float32)
-    valid = np.isfinite(raw) & (np.abs(raw) <= BZ_CLIP_GAUSS)
+    valid = np.isfinite(raw) & (np.abs(raw) <= WIND_FLUX_CLIP)
     wind = np.where(valid, raw, 0.0).astype(np.float32, copy=False)
     return wind, valid
 
@@ -96,7 +99,7 @@ def cube_norm_stats(cube: CubeHandle, sample_frames: int = 32) -> tuple[float, f
     for t in idx:
         frame = np.asarray(cube.wind[:, :, int(t)], dtype=np.float32)
         # Drop sentinel outliers before computing stats
-        bounded = frame[np.isfinite(frame) & (np.abs(frame) <= BZ_CLIP_GAUSS)]
+        bounded = frame[np.isfinite(frame) & (np.abs(frame) <= WIND_FLUX_CLIP)]
         if bounded.size:
             chunks.append(bounded)
     flat = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float32)
