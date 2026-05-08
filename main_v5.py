@@ -125,6 +125,9 @@ def build_model(cfg: dict) -> V5JEPAModel:
         drop_path=float(pred["drop_path"]),
         target_ema_decay=float(cfg["training"]["target_ema_decay"]),
         grad_checkpoint=bool(cfg["training"].get("grad_checkpoint", False)),
+        valid_token_threshold=float(
+            cfg["model"].get("masking", {}).get("valid_token_threshold", 0.5)
+        ),
     )
     return V5JEPAModel(cfg=j)
 
@@ -163,7 +166,7 @@ def main() -> int:
     for epoch in range(epochs):
         state.epoch = epoch
         tr = train_one_epoch(model, train_loader, optimizer, cfg, state, device, total_steps)
-        vr = validate(model, val_loader, device)
+        vr = validate(model, val_loader, device, cfg)
         print(f"[epoch {epoch}] train_loss={tr['loss']:.4f} val_loss={vr['loss']:.4f}")
         if vr["loss"] < state.best_val:
             state.best_val = vr["loss"]

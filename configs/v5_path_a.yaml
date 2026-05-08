@@ -44,6 +44,21 @@ model:
     enabled: false
     tap_layers: [4, 8, 12]
     upsample: bilinear
+  patch_size: 16
+  masking:
+    enabled: true
+    policy_mix: {tube: 0.5, future: 0.3, cross_time: 0.2}
+    tube_short_area: 0.15
+    tube_long_area: 0.40
+    future_pct: 0.30
+    cross_time_pct: 0.30
+    target_ratio: 0.80
+    val_policy: tail
+    valid_token_threshold: 0.5
+    seed: 0
+    curriculum:
+      tail_only_pct: 0.10
+      warmup_pct: 0.20
 
 loss:
   primary: smooth_l1_embedding

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models.v5 import V5JEPAModel
 from models.v5.jepa_model import JEPAConfig
+from solarflare_data.mask_catalog import sample_mixed
 from solarflare_data.zarr_loader import (
     cube_norm_stats,
     iter_valid_starts,
@@ -39,6 +40,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--t-in", type=int, default=10)
     p.add_argument("--t-out", type=int, default=4)
     p.add_argument("--device", default="auto")
+    p.add_argument("--mask-policy", default="none",
+                   choices=["none", "auto", "tail", "tube", "future", "cross_time"],
+                   help="JEPA pretext mask policy ('auto'=tube/future/cross_time mix, 'none'=rollout).")
     return p.parse_args()
 
 
@@ -92,8 +96,22 @@ def main() -> int:
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
+
+    mask = None
+    if args.mask_policy != "none":
+        Hp = (x.shape[-2] + (cfg.patch_size - x.shape[-2] % cfg.patch_size) % cfg.patch_size) // cfg.patch_size
+        Wp = (x.shape[-1] + (cfg.patch_size - x.shape[-1] % cfg.patch_size) % cfg.patch_size) // cfg.patch_size
+        if args.mask_policy == "auto":
+            mix = {"tube": 0.5, "future": 0.3, "cross_time": 0.2}
+        else:
+            mix = {args.mask_policy: 1.0}
+        g = torch.Generator(); g.manual_seed(0)
+        mask = sample_mixed(x.shape[0], x.shape[1], Hp, Wp, mix=mix,
+                            t_out=args.t_out, generator=g, device=device)
+        print(f"[info] mask policy={args.mask_policy} mix={mix} ratio={mask.float().mean():.3f}")
+
     t_fwd = time.time()
-    out = model(x, valid_mask=valid_t)
+    out = model(x, valid_mask=valid_t, mask=mask)
     print(f"[info] fwd ok: z_pred={tuple(out['z_pred'].shape)} loss={out['loss'].item():.4f} "
           f"({time.time()-t_fwd:.2f}s)")
 
