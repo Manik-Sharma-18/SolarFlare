@@ -82,12 +82,18 @@ session survives; the next launcher detects the stale state and recovers.
 
 Runs on Mac Mini, port 7434. Dispatches every 30s. SQLite at `.controller/queue.db`.
 
+**Preflight before any submit:** `curl -sf http://localhost:7434/status >/dev/null || nohup python3 scripts/experiment_controller.py > logs/experiment_controller.log 2>&1 & disown`
+
+**On the Mac Mini itself, `mac-mini.local` does not resolve.** Export `SF_CONTROLLER_URL=http://localhost:7434` (or prefix submit/cancel commands) — default URL only works from other machines on the LAN.
+
 ```bash
 # Start (one-time, Mac Mini only)
 nohup python3 scripts/experiment_controller.py > logs/experiment_controller.log 2>&1 &
 
-# Status check
+# Status check (off-Mac-Mini)
 curl http://mac-mini.local:7434/status | python3 -m json.tool
+# Status check (on Mac Mini)
+curl http://localhost:7434/status | python3 -m json.tool
 ```
 
 Round-robins across users. `--device-pref cuda` entries only run on `5060ti_cuda`.
@@ -111,7 +117,50 @@ Override: `scripts/launch_slot.sh 5060ti_cuda script.py --unsafe-cuda-launch`
 
 ---
 
-## 6. Monitor Live Training
+## 6. Sync Verification (MANDATORY for remote slots)
+
+`launch_slot.sh` runs `scripts/sync_verify.sh` as preflight whenever
+`HOST != local` (i.e. `studio_*` and `5060ti_cuda`). Two levels:
+
+| Level | What it checks | How |
+|-------|---------------|-----|
+| **code** | All `*.py *.sh *.yaml *.yml *.md` outside `outputs/`, `data/`, `logs/`, `.git/`, `venv/`, `__pycache__/`, `.controller/` | SHA256 hash manifest local vs remote |
+| **data** | `data/*.zarr` set + sizes (kB) | `du -sk data/*.zarr` local vs remote |
+
+Exit codes: `0`=in sync, `1`=error, `2`=out of sync.
+
+If out of sync, the launch aborts. Resolve by:
+
+```bash
+# Auto-rsync (code + data)
+scripts/sync_verify.sh --slot 5060ti_cuda --level both --fix
+
+# Or rsync as part of launch
+scripts/launch_slot.sh 5060ti_cuda main_v5.py --sync-fix --config configs/v5_path_a.yaml
+
+# Bypass (only when remote is intentionally diverged — e.g. branch experiment)
+scripts/launch_slot.sh 5060ti_cuda main_v5.py --skip-sync-check ...
+```
+
+Why this exists: silent staleness on `5060ti` (local code newer than remote)
+caused multiple "fixes that did nothing" — remote was running old code.
+Verification + auto-rsync makes that scenario impossible to hit by accident.
+
+Direct standalone use:
+
+```bash
+# Check only (no transfer)
+scripts/sync_verify.sh --slot 5060ti_cuda --level code
+scripts/sync_verify.sh --slot 5060ti_cuda --level data
+scripts/sync_verify.sh --slot 5060ti_cuda --level both
+
+# Push local → remote
+scripts/sync_verify.sh --slot studio_mps --level code --fix
+```
+
+---
+
+## 7. Monitor Live Training
 
 ```bash
 # Attach to local session
@@ -126,7 +175,7 @@ ssh 5060ti -t /usr/bin/tmux attach -t sf-manik-5060ti_cuda-main_v5
 
 ---
 
-## 7. Smoke Test Before Launch
+## 8. Smoke Test Before Launch
 
 ```bash
 python3 main.py --help

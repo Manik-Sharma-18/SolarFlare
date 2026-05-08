@@ -21,9 +21,16 @@ fi
 SLOT="$1"; SCRIPT="$2"; shift 2
 
 UNSAFE_CUDA=0
+SKIP_SYNC=0
+SYNC_FIX=0
 NEW_ARGS=()
 for arg in "$@"; do
-  [[ "$arg" == "--unsafe-cuda-launch" ]] && UNSAFE_CUDA=1 || NEW_ARGS+=("$arg")
+  case "$arg" in
+    --unsafe-cuda-launch) UNSAFE_CUDA=1 ;;
+    --skip-sync-check)    SKIP_SYNC=1 ;;
+    --sync-fix)           SYNC_FIX=1 ;;
+    *) NEW_ARGS+=("$arg") ;;
+  esac
 done
 set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
 
@@ -73,6 +80,17 @@ esac
 
 STEP=$(basename "$SCRIPT" .py)
 SESSION="sf-${USER_PREFIX}-${SLOT}-${STEP}"
+
+# --- sync verification (remote slots only) ----------------------------------
+if [[ "$HOST" != "local" && "$SKIP_SYNC" == "0" ]]; then
+  SYNC_ARGS=(--slot "$SLOT" --level both)
+  [[ "$SYNC_FIX" == "1" ]] && SYNC_ARGS+=(--fix)
+  if ! bash "$REPO_LOCAL/scripts/sync_verify.sh" "${SYNC_ARGS[@]}"; then
+    echo "ERROR: sync verification failed for $SLOT (host=$HOST)" >&2
+    echo "  Re-run with --sync-fix to auto-rsync, or --skip-sync-check to bypass." >&2
+    exit 1
+  fi
+fi
 
 # --- helpers ----------------------------------------------------------------
 run() {
