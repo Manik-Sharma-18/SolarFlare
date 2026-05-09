@@ -164,7 +164,10 @@ def main() -> int:
     state = TrainState()
 
     epochs = args.max_epochs if args.max_epochs is not None else int(cfg["training"]["epochs"])
-    total_steps = max(1, epochs * len(train_loader) // int(cfg["training"]["grad_accum_steps"]))
+    accum = int(cfg["training"]["grad_accum_steps"])
+    max_spe = int(cfg["training"].get("max_steps_per_epoch", 0))
+    steps_per_epoch = max_spe if max_spe else (len(train_loader) // accum)
+    total_steps = max(1, epochs * steps_per_epoch)
     out_dir = Path(cfg["logging"]["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
