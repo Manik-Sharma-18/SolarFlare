@@ -117,7 +117,7 @@ check_data() {
 
 # --- rsync fix --------------------------------------------------------------
 fix_code() {
-  log "sync_verify[code]: rsync local → $HOST:$DIR…"
+  log "sync_verify[code]: rsync local -> ${HOST}:${DIR}..."
   rsync -az --delete \
     --include='*/' \
     --include='*.py' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.md' \
@@ -129,7 +129,7 @@ fix_code() {
 }
 
 fix_data() {
-  log "sync_verify[data]: rsync data/ local → $HOST:$DIR/data/…"
+  log "sync_verify[data]: rsync data/ local -> ${HOST}:${DIR}/data/..."
   rsync -az --delete "$REPO_LOCAL/data/" "$HOST:$DIR/data/"
 }
 
