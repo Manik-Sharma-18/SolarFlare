@@ -119,11 +119,11 @@ check_data() {
 fix_code() {
   log "sync_verify[code]: rsync local -> ${HOST}:${DIR}..."
   rsync -az --delete \
-    --include='*/' \
-    --include='*.py' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.md' \
     --exclude='outputs/' --exclude='outputs_*/' --exclude='data/' --exclude='logs/' \
     --exclude='.git/' --exclude='.venv/' --exclude='venv/' \
     --exclude='__pycache__/' --exclude='.controller/' --exclude='.claude/projects/' \
+    --include='*/' \
+    --include='*.py' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.md' \
     --exclude='*' \
     "$REPO_LOCAL/" "$HOST:$DIR/"
 }
