@@ -73,6 +73,7 @@ training:
   warmup_pct: 0.10
   min_lr_ratio: 0.01
   epochs: 50
+  max_steps_per_epoch: 1000     # 0 = full epoch; 1000 steps ≈ 48 min → convergence check
   batch_size: 1
   grad_accum_steps: 4
   grad_clip: 1.0

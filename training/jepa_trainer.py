@@ -1,9 +1,5 @@
-"""V5 JEPA trainer (Path B) — smooth-L1 in embedding space, target EMA, curriculum.
-
-AdamW single-group; cosine warmup; bf16 autocast (cuda/cpu); grad clip 1.0.
-Two regimes: rollout curriculum (no-mask) or per-batch JEPA mask catalog
-(mask catalog + curriculum_mix; val uses tail policy).
-"""
+"""V5 JEPA trainer (Path B): AdamW + cosine warmup + bf16 autocast + grad clip.
+Rollout curriculum (no-mask) or per-batch JEPA mask catalog; val uses tail policy."""
 from __future__ import annotations
 
 import math
@@ -114,6 +110,8 @@ def train_one_epoch(
     patch = _patch_size(cfg)
     losses: list[float] = []
     optimizer.zero_grad(set_to_none=True)
+    max_steps = int(cfg["training"].get("max_steps_per_epoch", 0))
+    epoch_steps = 0
 
     for i, batch in enumerate(loader):
         x = batch["wind"].to(device, non_blocking=True)
@@ -143,9 +141,12 @@ def train_one_epoch(
             if hasattr(model, "update_target_ema"):
                 model.update_target_ema()
             state.global_step += 1
+            epoch_steps += 1
             if state.global_step % log_every == 0:
                 recent = sum(losses[-log_every * accum:]) / max(1, min(log_every * accum, len(losses)))
                 print(f"[train] step={state.global_step} loss={recent:.4f} t={time.time()-t0:.1f}s")
+            if max_steps and epoch_steps >= max_steps:
+                break
 
     return {"loss": sum(losses) / max(1, len(losses))}
 
