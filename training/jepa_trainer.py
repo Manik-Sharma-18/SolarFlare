@@ -143,10 +143,9 @@ def train_one_epoch(
             if hasattr(model, "update_target_ema"):
                 model.update_target_ema()
             state.global_step += 1
-
-        if state.global_step and state.global_step % log_every == 0:
-            recent = sum(losses[-log_every:]) / max(1, len(losses[-log_every:]))
-            print(f"[train] step={state.global_step} loss={recent:.4f} t={time.time()-t0:.1f}s")
+            if state.global_step % log_every == 0:
+                recent = sum(losses[-log_every * accum:]) / max(1, min(log_every * accum, len(losses)))
+                print(f"[train] step={state.global_step} loss={recent:.4f} t={time.time()-t0:.1f}s")
 
     return {"loss": sum(losses) / max(1, len(losses))}
 
