@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 from pathlib import Path
+
+# Must be set before first CUDA malloc (torch.compile + large cubes cause fragmentation)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 import yaml
@@ -152,9 +156,9 @@ def main() -> int:
     compile_mode = cfg["training"].get("compile", "off")
     if compile_mode != "off" and device.type == "cuda":
         print(f"[info] torch.compile mode={compile_mode}")
-        model.encoder = torch.compile(model.encoder, dynamic=True, mode=compile_mode)
-        model.predictor = torch.compile(model.predictor, dynamic=True, mode=compile_mode)
-        model.target_encoder = torch.compile(model.target_encoder, dynamic=True, mode=compile_mode)
+        model.encoder = torch.compile(model.encoder, mode=compile_mode)
+        model.predictor = torch.compile(model.predictor, mode=compile_mode)
+        model.target_encoder = torch.compile(model.target_encoder, mode=compile_mode)
 
     optimizer = build_optimizer(model, cfg)
     state = TrainState()
