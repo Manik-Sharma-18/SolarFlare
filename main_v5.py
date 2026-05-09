@@ -16,6 +16,7 @@ import json
 import random
 from pathlib import Path
 
+import torch
 import yaml
 from torch.utils.data import DataLoader
 
@@ -142,6 +143,7 @@ def main() -> int:
     train_loader, val_loader = build_dataloaders(cfg)
     print(f"[info] train batches={len(train_loader)} val batches={len(val_loader)}")
 
+    torch.manual_seed(int(cfg["data"].get("split_seed", 0)))
     model = build_model(cfg).to(device)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
@@ -149,7 +151,6 @@ def main() -> int:
 
     compile_mode = cfg["training"].get("compile", "off")
     if compile_mode != "off" and device.type == "cuda":
-        import torch
         print(f"[info] torch.compile mode={compile_mode}")
         model.encoder = torch.compile(model.encoder, dynamic=True, mode=compile_mode)
         model.predictor = torch.compile(model.predictor, dynamic=True, mode=compile_mode)
