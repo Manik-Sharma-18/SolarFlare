@@ -35,6 +35,7 @@ from training.jepa_trainer import (
     validate,
 )
 from utils.device import resolve_device
+from utils.run_logger import log_jsonl, log_meta
 
 
 def parse_args() -> argparse.Namespace:
@@ -170,16 +171,25 @@ def main() -> int:
     total_steps = max(1, epochs * steps_per_epoch)
     out_dir = Path(cfg["logging"]["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    run_log = out_dir / "run.jsonl"
+    log_meta(run_log, event="run_start", config_path=args.config, device=str(device),
+             params_trainable=int(n_train), params_total=int(n_total),
+             epochs=epochs, steps_per_epoch=steps_per_epoch, total_steps=total_steps,
+             config=cfg)
+    train_fn = log_jsonl(run_log, "train")(train_one_epoch)
+    val_fn = log_jsonl(run_log, "val")(validate)
 
     for epoch in range(epochs):
         state.epoch = epoch
-        tr = train_one_epoch(model, train_loader, optimizer, cfg, state, device, total_steps)
-        vr = validate(model, val_loader, device, cfg)
+        tr = train_fn(model, train_loader, optimizer, cfg, state, device, total_steps)
+        vr = val_fn(model, val_loader, device, cfg)
         print(f"[epoch {epoch}] train_loss={tr['loss']:.4f} val_loss={vr['loss']:.4f}")
         if vr["loss"] < state.best_val:
             state.best_val = vr["loss"]
             save_ckpt(out_dir / "best.pt", model, optimizer, state, cfg)
+            log_meta(run_log, event="best_ckpt", epoch=epoch, val_loss=float(vr["loss"]))
         save_ckpt(out_dir / "last.pt", model, optimizer, state, cfg)
+    log_meta(run_log, event="run_end")
     return 0
 
 
