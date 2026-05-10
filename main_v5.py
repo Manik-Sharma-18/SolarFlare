@@ -1,13 +1,6 @@
 """V5 entry point (Path B): load config → build JEPA model + dataloaders → train.
-
-Usage:
-    python main_v5.py --config configs/v5_path_a.yaml
-    python main_v5.py --config configs/v5_sanity.yaml --max-epochs 1
-
 # CUDA-5060ti-validated
-# DataLoaders set pin_memory=True here; non_blocking=True transfers live in
-# training/jepa_trainer.py (lines 96-97, 129-130). bf16 autocast in trainer,
-# no fp16 GradScaler.
+# pin_memory=True here; non_blocking=True in jepa_trainer.py; bf16 autocast; no fp16 GradScaler.
 """
 from __future__ import annotations
 
@@ -45,6 +38,8 @@ def parse_args() -> argparse.Namespace:
                    help="Override config epochs (useful for smoke).")
     p.add_argument("--device", default=None,
                    help="Override cfg device.prefer (cuda|mps|cpu). Used by launch_slot.sh.")
+    p.add_argument("--resume", default=None,
+                   help="Path to checkpoint to resume from (e.g. outputs_v5/last.pt).")
     return p.parse_args()
 
 
@@ -58,11 +53,7 @@ def split_cubes_by_harp(
     seed: int,
     allowlist: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Cube-level holdout per docs/V5_JEPA/06_data.md §11.5 item 10.
-
-    Prevents AR-identity leakage: each harp_id lands fully in train or val.
-    `allowlist` restricts the candidate set (useful for sanity / debug runs).
-    """
+    """Cube-level holdout — each harp_id lands fully in train or val (no AR leakage)."""
     entries = json.loads(Path(manifest_path).read_text())["cubes"]
     ids = sorted(e["harp_id"] for e in entries)
     if allowlist is not None:
@@ -164,6 +155,15 @@ def main() -> int:
     optimizer = build_optimizer(model, cfg)
     state = TrainState()
 
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        state.epoch = int(ckpt["epoch"]) + 1
+        state.global_step = int(ckpt["global_step"])
+        state.best_val = float(ckpt["best_val"])
+        print(f"[info] resumed from {args.resume} — epoch={state.epoch} step={state.global_step} best_val={state.best_val:.4f}")
+
     epochs = args.max_epochs if args.max_epochs is not None else int(cfg["training"]["epochs"])
     accum = int(cfg["training"]["grad_accum_steps"])
     max_spe = int(cfg["training"].get("max_steps_per_epoch", 0))
@@ -179,7 +179,7 @@ def main() -> int:
     train_fn = log_jsonl(run_log, "train")(train_one_epoch)
     val_fn = log_jsonl(run_log, "val")(validate)
 
-    for epoch in range(epochs):
+    for epoch in range(state.epoch, epochs):
         state.epoch = epoch
         tr = train_fn(model, train_loader, optimizer, cfg, state, device, total_steps)
         vr = val_fn(model, val_loader, device, cfg)
