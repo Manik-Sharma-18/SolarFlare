@@ -3,7 +3,7 @@
 > **First read on a fresh session:** `docs/V5_JEPA/09_progress.md` is the
 > source of truth for current state. This file just bootstraps you to it.
 
-## Where we are (2026-05-08)
+## Where we are (2026-05-11)
 
 - **Active branch:** `v5-jepa-lora`. V4 stays on `Version_4` as baseline.
 - **Active architecture:** **V5.0 Path B — JEPA-from-scratch** (V-JEPA-2-AC
@@ -12,16 +12,19 @@
 - **Path A (LoRA on Surya) is abandoned.** HelioSpectFormer hard-locked to
   `img_size=4096 / 60-min / 13ch`; AR cubes are variable-HxW / 12-min / 1ch.
   Don't re-introduce `transformers` / `peft` / `huggingface_hub`.
-- **Sanity status:** MPS 1-epoch green, RTX 5060 Ti 5-epoch green, MPS 5-epoch
-  re-run at 1e8 clip green (val_loss 0.0407, 5× better than 1e5 baseline).
-  Pipeline + EMA + curriculum + bf16 + manual MPS attn fallback all validated.
+- **Sanity status:** All green. Full experiment log: `docs/V5_JEPA/12_experiments.md`.
+  - No-mask MPS 5-ep: val 0.0407 (1e8 clip fix, 5× over 1e5 baseline).
+  - Mask-ON MPS 50-ep: val 0.0689 ep49, not converged (18-ep curriculum plateau; fix in progress).
+  - Mask-OFF MPS 50-ep: val 0.0125 ep38, saturated ep24+ (tiny-dataset limit).
+  - path_a CUDA 5060ti (dim=384, 21 cubes): ep5 val 0.127, resuming ep6→19 (E08, running).
+  - Mask-ON MPS 100-ep slow curriculum (E09): running on mini_mps.
 
 ## Key entry points
 
 | File | Purpose |
 |---|---|
 | `main_v5.py` | Config-driven entry. `--config <yaml> --max-epochs N --device cuda\|mps\|cpu`. |
-| `configs/v5_path_a.yaml` | Path B full spec (filename kept for compat). ViT-Small, 50 epochs. |
+| `configs/v5_path_a.yaml` | Path B full spec (filename kept for compat). ViT-Small, 20 epochs. |
 | `configs/v5_sanity.yaml` | MPS-friendly tiny config (dim=192, 4 cubes). |
 | `models/v5/jepa_model.py` | `V5JEPAModel` — context + EMA target + predictor. |
 | `training/jepa_trainer.py` | Single LR group; `update_target_ema()` after each step. |
@@ -68,8 +71,20 @@ commands.
 
 ## Data
 
-- `data/*.zarr` — 10 AR cubes (harp_8, _17, _26, _43, _45, _49, _51, _54, _83,
-  _11930). 12-min cadence. Single-channel `wind` + `Time` arrays only.
+- `data/*.zarr` — **21 AR cubes**, 12-min cadence, single-channel `wind` + `Time`.
+  | Cube | Frames | Cube | Frames |
+  |---|---|---|---|
+  | harp_8 | 200 | harp_86 | 566 |
+  | harp_17 | 91 | harp_116 | 213 |
+  | harp_26 | 215 | harp_156 | 220 |
+  | harp_43 | 219 | harp_219 | 80 |
+  | harp_45 | 125 | harp_221 | 77 |
+  | harp_49 | 239 | harp_245 | 465 |
+  | harp_51 | 169 | harp_274 | 228 |
+  | harp_54 | 256 | harp_316 | 123 |
+  | harp_83 | 126 | harp_318 | 161 |
+  | harp_11930 | 627 | harp_may2024 | 440 |
+  | harp_nov2025 | 437 | | |
 - `data/manifest.json` — generated via `scripts/build_zarr_manifest.py`.
 - Locked priors: pixel scale 0.364 Mm/px constant; sign convention chiral
   pseudoscalar; no metadata beyond `wind` + `Time`. See
@@ -82,11 +97,11 @@ commands.
 - D4 chiral aug: H/V flip, 90°, 270° flip sign; 180° preserves; identity passes
   through. See `docs/V5_JEPA/06_data.md` §11.4.
 
-## Pending work (from `09_progress.md`)
+## Pending work
 
-1. Mask catalog (`solarflare_data/masking.py`) — short tube / long tube / future
-   block / cross-time / tail. Currently splits by t_in/t_out only.
-2. Full GPU run on `configs/v5_path_a.yaml` (50 epochs, all 10 cubes,
-   `compile: default`, `grad_checkpoint: true`).
-3. Eval suite — pixel-decoder ablation, CSI/HSS, persistence baseline.
-4. Encoder feature cache for target embeddings (avoid recomputing each epoch).
+1. ~~Mask catalog~~ **DONE** — `solarflare_data/mask_catalog.py`, 5 strategies, curriculum. Validated MPS 5-ep.
+2. **path_a full run** — E08 running on 5060ti (ep6→19, resumes from ep5 val 0.127). Check `outputs_v5/run.jsonl`.
+3. **Slow curriculum convergence** — E09 running on mini_mps (100 ep, tail_only→ep25, full mix→ep65). Check `outputs_v5_mini_mask_on_slow/run.jsonl`.
+4. **Eval suite** — pixel-decoder ablation, CSI/HSS, persistence baseline. Blocked on path_a convergence.
+5. **Encoder feature cache** — cache target embeddings to disk once architecture settles. ~2× speedup.
+6. **Strategy A follow-up** — visible-only encoder (true V-JEPA sparse tokens). Separate PR.
