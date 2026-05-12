@@ -117,7 +117,9 @@ LAUNCH="/tmp/sf_launch_${SESSION}.sh"
 
 if [[ "$HOST" == "local" ]]; then
   echo "$CMD" > "$LAUNCH" && chmod +x "$LAUNCH"
-  TERM=xterm-256color $TMUX new-session -d -s "$SESSION" bash "$LAUNCH"
+  # Unset $TMUX env var: controller daemon runs inside sf-controller tmux session,
+  # subprocess inherits $TMUX, then nested `tmux new-session` dies ~35s. Strip it here.
+  env -u TMUX TERM=xterm-256color $TMUX new-session -d -s "$SESSION" bash "$LAUNCH"
 else
   ssh -o ConnectTimeout=5 "$HOST" "cat > $LAUNCH && chmod +x $LAUNCH" <<< "$CMD"
   ssh -o ConnectTimeout=5 "$HOST" "$TMUX new-session -d -s $SESSION bash $LAUNCH"
