@@ -23,42 +23,28 @@ SLOT="$1"; SCRIPT="$2"; shift 2
 UNSAFE_CUDA=0
 SKIP_SYNC=0
 SYNC_FIX=0
+SKIP_VRAM=0
 NEW_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --unsafe-cuda-launch) UNSAFE_CUDA=1 ;;
     --skip-sync-check)    SKIP_SYNC=1 ;;
     --sync-fix)           SYNC_FIX=1 ;;
+    --skip-vram-check)    SKIP_VRAM=1 ;;
     *) NEW_ARGS+=("$arg") ;;
   esac
 done
 set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
 
+# VRAM buffer rule (CUDA only): launch blocked if used/total > (100 - BUFFER)%.
+# Default buffer 40% → max used 60%. Override via env SF_VRAM_BUFFER_PCT.
+VRAM_BUFFER_PCT="${SF_VRAM_BUFFER_PCT:-40}"
+
 USER_PREFIX="${SF_USER:-$(whoami)}"
 REPO_LOCAL="/Volumes/T9/IndraAstra/manik/SolarFlare"
 
-# --- CUDA audit (5060ti_cuda only) ------------------------------------------
-audit_cuda() {
-  local script="$1"
-  [[ -f "$script" ]] || { echo "ERROR: cannot read script: $script" >&2; return 1; }
-  local c; c=$(cat "$script")
-  grep -q "# CUDA-5060ti-validated" <<< "$c" && return 0
-  local fails=()
-  grep -q "pin_memory=True" <<< "$c"   || fails+=("  - Missing pin_memory=True on DataLoader")
-  grep -q "non_blocking=True" <<< "$c" || fails+=("  - Missing non_blocking=True on .to(device)")
-  if grep -q "GradScaler" <<< "$c" && ! grep -qE "GradScaler\([^)]*enabled=False|use_amp=False" <<< "$c"; then
-    fails+=("  - GradScaler without enabled=False — fp32 is faster on Blackwell")
-  fi
-  if [[ ${#fails[@]} -gt 0 ]]; then
-    echo "" >&2
-    echo "┌── CUDA LAUNCH BLOCKED: $script" >&2
-    echo "│   See: .claude/skills/solarflare-training/SKILL.md" >&2
-    for f in "${fails[@]}"; do echo "│ $f" >&2; done
-    echo "│   Override: append --unsafe-cuda-launch" >&2
-    echo "└──" >&2
-    return 1
-  fi
-}
+# shellcheck source=_sf_audit.sh
+source "$REPO_LOCAL/scripts/_sf_audit.sh"
 
 if [[ "$SLOT" == "5060ti_cuda" ]]; then
   if [[ "$UNSAFE_CUDA" == "1" ]]; then
@@ -66,6 +52,7 @@ if [[ "$SLOT" == "5060ti_cuda" ]]; then
   else
     audit_cuda "$SCRIPT" || exit 1
   fi
+  [[ "$SKIP_VRAM" == "0" ]] && { audit_vram "$@" || exit 1; }
 fi
 
 # --- Slot config ------------------------------------------------------------

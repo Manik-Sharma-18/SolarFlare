@@ -131,6 +131,26 @@ y = y.to(device, non_blocking=True)   # required
 Do NOT use fp16 GradScaler on Blackwell (RTX 5060 Ti). fp32 is faster.
 Use `utils/device.py::get_grad_scaler(use_amp=False, device)` — returns DummyGradScaler.
 
+### VRAM Preflight Details
+
+Before every 5060ti_cuda launch, `launch_slot.sh` queries
+`nvidia-smi --query-gpu=memory.used,memory.total` on the remote and blocks
+the launch unless free VRAM ≥ `budget × (1 + SF_VRAM_BUFFER_PCT/100)` where
+`budget` is read from `configs/_vram_budget.yaml` (key = config basename).
+
+If the config has no entry, falls back to: used ≤ (100 - buffer)% of total.
+
+Default buffer 40% (leaves headroom for activations / fragmentation /
+co-tenants — e.g. trading-sim historically contended the 5060ti). Mini
+configs ~1–2 GB; path_a ~3–6 GB on 16 GB card.
+
+Tune: `SF_VRAM_BUFFER_PCT=30 scripts/launch_slot.sh ...`
+Override: `--skip-vram-check` (use only when no other GPU process confirmed).
+Calibrate budgets: watch nvidia-smi during a run, pad +20% for transient peaks.
+
+Failure output is a labelled block stating used/total MiB, required threshold,
+and the config's budget — fix by stopping the offending process, then relaunch.
+
 ---
 
 ## Remote Machine Setup (TODO)

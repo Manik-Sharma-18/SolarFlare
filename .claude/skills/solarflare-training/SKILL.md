@@ -115,6 +115,15 @@ Add `# CUDA-5060ti-validated` anywhere in script to bypass audit (use sparingly)
 
 Override: `scripts/launch_slot.sh 5060ti_cuda script.py --unsafe-cuda-launch`
 
+### 5a. VRAM Preflight (5060ti_cuda, MANDATORY)
+
+Every 5060ti_cuda launch checks remote `nvidia-smi` against a per-config
+budget in `configs/_vram_budget.yaml`. Blocked unless
+`free ≥ budget × (1 + buffer)`. Default buffer 40%. Tune via
+`SF_VRAM_BUFFER_PCT`; override via `--skip-vram-check`.
+
+Full details and tuning notes: `USAGE.md` §CUDA Best Practices.
+
 ---
 
 ## 6. Sync Verification (MANDATORY for remote slots)

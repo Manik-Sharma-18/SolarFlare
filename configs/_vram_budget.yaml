@@ -1,0 +1,25 @@
+# VRAM budgets in MiB — peak usage estimate per config.
+# Used by scripts/launch_slot.sh audit_vram (5060ti_cuda only).
+# Rule: free_mib >= budget × (1 + SF_VRAM_BUFFER_PCT/100). Default buffer 40%.
+# Key = basename of yaml without extension.
+# Calibrate by watching nvidia-smi during a run; pad +20% for transient peaks.
+
+# Path A / B JEPA — dim=384, 12-layer encoder, 6-layer predictor, grad_ckpt=true.
+v5_path_a: 6000
+
+# Sanity / mini — dim=192, 4-layer encoder, 3-layer predictor.
+v5_sanity: 1500
+v5_mini_mask_on_50ep: 1500
+v5_mini_mask_off_50ep: 1500
+v5_mini_mask_on_100ep_slow_curric: 1500
+v5_mini_mask_tube_only_100ep: 1500
+v5_mini_mask_tube_only_cuda: 1500
+v5_mini_mask_tube_future_cuda: 1500
+v5_mini_mask_tube_cross_cuda: 1500
+v5_mini_mask_uniform_cuda: 1500
+
+# Probe configs — dataset features only, no JEPA backbone in memory.
+probe_e09: 800
+
+# Fallback when config not in table.
+default: 4000
