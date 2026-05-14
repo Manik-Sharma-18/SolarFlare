@@ -6,6 +6,7 @@
 
 # Path A / B JEPA — dim=384, 12-layer encoder, 6-layer predictor, grad_ckpt=true.
 v5_path_a: 6000
+v5_thesis: 6000
 
 # Sanity / mini — dim=192, 4-layer encoder, 3-layer predictor.
 v5_sanity: 1500
