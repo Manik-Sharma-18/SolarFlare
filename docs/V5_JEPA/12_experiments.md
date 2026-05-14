@@ -41,7 +41,8 @@ Config scale: **sanity** = dim 192, 4 cubes, t_in=4/t_out=2. **path_a** = dim 38
 | E26 | 2026-05-14 | sanity, ratio=0.75, uniform mix, 100ep | CUDA 5060ti | 100 | **0.00876** (ep99) | **Yes** | **Ratio winner.** Marginal vs E15 (r=0.80 0.00530); slightly better than E25. |
 | E27 | 2026-05-14 | sanity, ratio=0.85, uniform mix, 100ep | CUDA 5060ti | 100 | **0.01597** (ep99) | **Yes** | Past peak — ratio too high. |
 | E28 | 2026-05-14 | sanity, ratio=0.90, uniform mix, 100ep | CUDA 5060ti | 36 | 0.05798 (ep36) | TERMINATED | Killed ep36 — not needed. Trajectory worse than E27 at every epoch; concave shape confirmed at r=0.75. Saved ~2h to launch thesis run. |
-| E29 | 2026-05-14 | **THESIS**: path_b full (dim=384, 12L, 21 cubes), 80ep, τ=0.990, ratio=0.75, uniform mix, slow curric | CUDA 5060ti | — | — | Queued | Applies winners from τ sweep (E17) + ratio sweep (E26). Cfg: `v5_thesis.yaml`. Target: thesis backbone for wind probe. ETA ~89h. |
+| E29 | 2026-05-14 | **THESIS attempt 80ep**: path_b full (dim=384, 12L, 21 cubes), 80ep, τ=0.990, ratio=0.75, uniform mix, slow curric | CUDA 5060ti | 1 | 0.4093 (ep0) | KILLED 21:54 | Actual rate 4.9s/step (vs 2s estimate) — total ETA 11.5d, misses May 19 by 7d. CUDA per-epoch flat (E15 confirms no warmup spike). Replaced by E29b. Cfg: `v5_thesis.yaml`. |
+| E29b | 2026-05-14 | **THESIS 3-day**: same winners, compressed: 30ep × 1000 steps/ep (was 80×2000). Total opt steps 30K. | CUDA 5060ti | — | — | Running | id=57. ETA 30×1.4h×1.5 = 63h = 2.6d → done ~May 17 13:30. Cfg: `v5_thesis_3d.yaml`. |
 
 ---
 

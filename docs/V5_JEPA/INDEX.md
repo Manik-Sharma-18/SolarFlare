@@ -69,9 +69,10 @@ Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experi
 - **E12–E15 mask-policy ablation DONE.** E15 uniform mix new SOTA (0.00530, 1.57× E09). F11. Re-anchor downstream sweeps on uniform mix.
 - **E17–E20 EMA τ sweep DONE.** τ=0.990 winner (0.00761). Monotonic — lower τ better up to 0.990. Higher τ → worse: 0.994=0.00938, 0.998=0.01107, 0.9995=0.03010.
 - **E25–E28 mask-ratio sweep DONE.** Uniform mix anchored on E15. **r=0.75 winner (E26 0.00876).** Concave: E25 (0.60)=0.00960, E26 (0.75)=0.00876, E27 (0.85)=0.01597. E28 (0.90) TERMINATED ep36 — already worse than E27 at every epoch, concave shape proven, saved 2h to launch thesis.
-- **E29 THESIS RUN** (2026-05-14): full ViT-Small dim=384, 21 cubes, 80 epochs. Applies τ=0.990 + ratio=0.75 + uniform mix + slow curriculum. ETA ~89h → done ~May 18 10am. Cfg: `configs/v5_thesis.yaml`.
-- **E16 capacity arm STALE.** Last log 2026-05-12 21:29 ep5. Slot preempted by EMA sweep. Superseded by E29 thesis.
-- **Stage-2 probe** (queued): per-cube affine + richer pooling on E29 thesis ckpt.
+- **E29 KILLED** (2026-05-14 21:54): full ViT-Small 80ep run terminated after ep0 val=0.4093. Actual rate 4.9s/step × curric 1.5× → 11.5d ETA, missed May 19 deadline by 7d. CUDA per-epoch flat (no warmup speedup; E15 sanity confirmed). Cfg: `configs/v5_thesis.yaml`.
+- **E29b THESIS RUN 3-day** (2026-05-14 21:54): same winners, compressed schedule. epochs 80→30, max_steps_per_epoch 2000→1000. Total opt steps 160K→30K (19%). ETA 30×1.4h×1.5 = 63h = 2.6d → done ~May 17 13:30. Cfg: `configs/v5_thesis_3d.yaml`.
+- **E16 capacity arm STALE.** Last log 2026-05-12 21:29 ep5. Slot preempted by EMA sweep. Superseded by E29b thesis.
+- **Stage-2 probe** (queued): per-cube affine + richer pooling on E29b thesis ckpt.
 
 ---
 
