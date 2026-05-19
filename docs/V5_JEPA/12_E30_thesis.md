@@ -71,3 +71,24 @@ Frozen E30 encoder → spatially-pooled features [T,384] cached per cube. Linear
 - Persistence beats MLP on novel medAPE (8.9% vs 22.3%) — F9 calibration gap still bounds absolute % error on unseen ARs; relative ranking (R², r) is what the encoder now provides.
 - harp_8 still pathological (MAE 1.8e4 vs ~5e2 typical) → drags train aggregate. Per-cube reads cleanly otherwise.
 - Artifacts: `outputs_probe/E30_linear/best.pt`, `outputs_probe/E30_mlp/best.pt`, `outputs_probe/E30_eval/{probe_metrics.md,probe_metrics.json,overlay_*.png}`.
+
+### Per-cube affine calibration (linear probe, 30/70 split per cube)
+
+Fit y = a·ŷ + b on leading 30% of each cube, eval remaining 70%. Tests F9 (scale-mismatch hypothesis).
+
+| Cube | raw R² / MAPE | **cal R² / MAPE** | a | b |
+|---|---|---|---|---|
+| harp_11930 (val) | +0.529 / 12.5% | **+0.803 / 7.8%** | +0.55 | +1.3e3 |
+| harp_221 (val) | +0.099 / 49.2% | **+0.636 / 18.8%** | +1.05 | -2.4e2 |
+| harp_86 (val) | +0.648 / 6.5% | **+0.669 / 8.9%** | +0.85 | +3.8e2 |
+| harp_17 (novel) | -10.78 / 161% | **+0.657 / 16.1%** | +0.69 | -3.3e2 |
+| harp_51 (novel) | -30.19 / 133% | **+0.185 / 10.3%** | +0.27 | +6.7e2 |
+| harp_may2024 (novel) | -2.69 / 28.8% | **+0.735 / 5.0%** | +0.59 | +2.6e3 |
+| harp_nov2025 (novel) | -1.36 / 19.3% | **+0.365 / 7.8%** | +0.82 | +9.6e2 |
+| harp_245 (novel) | +0.342 / 29.1% | **-0.148 / 220%** | +3.71 | -6.6e3 |
+
+**Median calibrated medAPE across 8 cubes: 9.6% (linear) / 11.8% (MLP).** Was 22% raw MLP novel. Per-cube R² jumps from negative on most novel cubes to +0.18 to +0.74 (harp_245 outlier excluded). **F9 CONFIRMED:** encoder features encode correct temporal ranking; absolute scale drifts per cube. One a,b pair per cube closes the gap.
+
+- 4/5 novel cubes reach <17% medAPE after calibration (matches val-cube performance).
+- harp_245 fails calibration: a=3.7 extrapolates wildly. Has only 1030 eval frames after 30% cal split; persistence baseline already at MAPE 5.5% on this cube — encoder probe is structurally wrong here, not just scale-shifted.
+- Eval: `outputs_probe/E30_eval/probe_calibration.md`.
