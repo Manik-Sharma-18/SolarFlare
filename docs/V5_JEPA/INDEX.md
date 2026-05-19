@@ -1,7 +1,7 @@
 # V5 JEPA — Index
 
 Entry-point hub for V5 JEPA docs. No content lives here — pure TOC + links.
-Date: 2026-05-13. Branch: `v5-jepa-lora`.
+Date: 2026-05-19. Branch: `v5-jepa-lora`.
 
 ---
 
@@ -25,7 +25,9 @@ Date: 2026-05-13. Branch: `v5-jepa-lora`.
 | Sanity, ratio=0.85 (uniform mix) | `v5_e27_*.yaml` | 0.01597 | 99/100 | E27 | done — past peak |
 | Sanity, ratio=0.90 (uniform mix) | `v5_e28_*.yaml` | 0.05798 | 36 | E28 | TERMINATED — not needed |
 | Bigger MPS (dim=256/L=6, 21 cubes) | `v5_mini_path_a_mps.yaml` | 0.237 | 5 | E16 | STALE — slot preempted |
+| **THESIS curated (dim=384/L=12, 13 train cubes, 100ep×2000 steps)** | **`v5_thesis_curated.yaml`** | **0.00268** | **99/100** | **E30 v2** | **SOTA — 49% below E15 floor, 67% below E09 anchor** |
 | Stage-1 wind probe (linear) | on E09 features | R²=0.45 / medAPE 17.4% (harp_51) | — | E11 | calibration not capacity (F9) |
+| **Stage-2 wind probe** (linear/MLP) | on E30 v2 features | val R²=**0.700/0.729** r=**0.84/0.87**; novel R²=**+0.17/+0.23** r=**0.43/0.50** | — | E30-probe | encoder generalises to unseen ARs (E11 novel was random) |
 
 Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experiments_findings.md`](12_experiments_findings.md). Archive: [`12_experiments_archive.md`](12_experiments_archive.md).
 
@@ -70,9 +72,10 @@ Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experi
 - **E17–E20 EMA τ sweep DONE.** τ=0.990 winner (0.00761). Monotonic — lower τ better up to 0.990. Higher τ → worse: 0.994=0.00938, 0.998=0.01107, 0.9995=0.03010.
 - **E25–E28 mask-ratio sweep DONE.** Uniform mix anchored on E15. **r=0.75 winner (E26 0.00876).** Concave: E25 (0.60)=0.00960, E26 (0.75)=0.00876, E27 (0.85)=0.01597. E28 (0.90) TERMINATED ep36 — already worse than E27 at every epoch, concave shape proven, saved 2h to launch thesis.
 - **E29 KILLED** (2026-05-14 21:54): full ViT-Small 80ep run terminated after ep0 val=0.4093. Actual rate 4.9s/step × curric 1.5× → 11.5d ETA, missed May 19 deadline by 7d. CUDA per-epoch flat (no warmup speedup; E15 sanity confirmed). Cfg: `configs/v5_thesis.yaml`.
-- **E29b THESIS RUN 3-day** (2026-05-14 21:54): same winners, compressed schedule. epochs 80→30, max_steps_per_epoch 2000→1000. Total opt steps 160K→30K (19%). ETA 30×1.4h×1.5 = 63h = 2.6d → done ~May 17 13:30. Cfg: `configs/v5_thesis_3d.yaml`.
-- **E16 capacity arm STALE.** Last log 2026-05-12 21:29 ep5. Slot preempted by EMA sweep. Superseded by E29b thesis.
-- **Stage-2 probe** (queued): per-cube affine + richer pooling on E29b thesis ckpt.
+- **E29b KILLED** (2026-05-16): ep17 plateau val=0.0341 (ep5 0.00977 was tail-only-mask fluke). 21 cubes / 30K steps = 1430 steps/cube too thin. Replaced by E30 curated.
+- **E30 THESIS curated v2 DONE** (2026-05-19 21:26 IST): 13 train / 3 val / 5 holdout, 100ep × 2000 steps = 200K opt steps. **Final val 0.002680 ep99 — SOTA. 49.4% below E15 floor (0.00530), 67.7% below E09 anchor (0.00831).** Monotonic descent ep57→99 (no overfit). s/step 0.842 locked all 100ep. Holdout: harp_17, harp_51, harp_may2024, harp_nov2025, harp_245. Cfg: `configs/v5_thesis_curated.yaml`. Curves: `figures/E30_v2_thesis_curated_loss.png`, `figures/E30_v2_vs_sanity.png`.
+- **E16 capacity arm STALE.** Last log 2026-05-12 21:29 ep5. Slot preempted by EMA sweep. Superseded by E30 v2 thesis.
+- **Stage-2 probe DONE** (2026-05-19): linear + MLP heads on frozen E30 v2 features (spatial pool, dim=384). Splits mirror encoder. **Val R² 0.700→0.729 (linear→MLP), r 0.84→0.87.** **Novel cubes R² +0.17/+0.23, r 0.43/0.50** — was random (r=0.06) on E09. F9 calibration gap persists (novel medAPE 22%, persistence 9%) but relative ranking now meaningful. Detail: [`12_E30_thesis.md`](12_E30_thesis.md#stage-2-wind-probe-on-e30-2026-05-19--done).
 
 ---
 

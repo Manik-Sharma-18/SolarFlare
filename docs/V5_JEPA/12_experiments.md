@@ -42,7 +42,10 @@ Config scale: **sanity** = dim 192, 4 cubes, t_in=4/t_out=2. **path_a** = dim 38
 | E27 | 2026-05-14 | sanity, ratio=0.85, uniform mix, 100ep | CUDA 5060ti | 100 | **0.01597** (ep99) | **Yes** | Past peak — ratio too high. |
 | E28 | 2026-05-14 | sanity, ratio=0.90, uniform mix, 100ep | CUDA 5060ti | 36 | 0.05798 (ep36) | TERMINATED | Killed ep36 — not needed. Trajectory worse than E27 at every epoch; concave shape confirmed at r=0.75. Saved ~2h to launch thesis run. |
 | E29 | 2026-05-14 | **THESIS attempt 80ep**: path_b full (dim=384, 12L, 21 cubes), 80ep, τ=0.990, ratio=0.75, uniform mix, slow curric | CUDA 5060ti | 1 | 0.4093 (ep0) | KILLED 21:54 | Actual rate 4.9s/step (vs 2s estimate) — total ETA 11.5d, misses May 19 by 7d. CUDA per-epoch flat (E15 confirms no warmup spike). Replaced by E29b. Cfg: `v5_thesis.yaml`. |
-| E29b | 2026-05-14 | **THESIS 3-day**: same winners, compressed: 30ep × 1000 steps/ep (was 80×2000). Total opt steps 30K. | CUDA 5060ti | — | — | Running | id=57. ETA 30×1.4h×1.5 = 63h = 2.6d → done ~May 17 13:30. Cfg: `v5_thesis_3d.yaml`. |
+| E29b | 2026-05-14 | **THESIS 3-day**: same winners, compressed: 30ep × 1000 steps/ep (was 80×2000). Total opt steps 30K. | CUDA 5060ti | 17 | 0.00977 (ep5 tail-mask fluke); plateau 0.034 ep12-17 | KILLED 2026-05-16 | Plateau confirmed mid-mask broadening — 21 cubes / 30K steps = 1430 steps/cube, 3.5× thinner than E15 sanity. Replaced by curated E30. |
+| E30 | 2026-05-16 | **THESIS curated** (scaled v2): 13 train / 3 val / 5 holdout, 100ep × 2000 steps. Same winners (τ=0.990, r=0.75, uniform mix, slow curric). 15.4K steps/cube (3× E15 sanity 5K). | CUDA 5060ti | 100 | **0.002680** (ep99) | **Yes** | **SOTA — CONFIRMED 2026-05-19 21:26 IST.** 49.4% below E15 floor (0.00530), 67.7% below E09 anchor (0.00831). Monotonic descent ep57→99 (no overfit). s/step 0.842 locked all 100ep. Holdout: harp_17, harp_51, harp_may2024, harp_nov2025, harp_245. Cfg: `v5_thesis_curated.yaml`. |
+| E31 | 2026-05-16 | **LOW-DIM long**: dim=192/L=6 enc, L=4/d=192 pred, 19 train cubes, 80ep×1000 steps. Cross-attn predictor toggle (Option A). Same winners (τ=0.990, r=0.75, uniform mix, slow curric). | mini_mps | 20 (resumed) | 0.0647 (ep20) | Running | Cross-attn fix at ep20 — see F12. Cfg: `v5_e31_lowdim_long.yaml`. ETA ~3d. |
+| E30-probe | 2026-05-19 | wind-flux probe on E30 v2 features (linear + MLP, dim=384, splits mirror encoder). | mac mini CPU | 60 (linear ep17 best, MLP ep2 best) | val R²=**0.700/0.729** r=**0.84/0.87**; novel R²=+**0.17/+0.23** r=**0.43/0.50** | — | Stage-2 probe. **Novel transfer flipped from random (E11 r=0.06) to meaningful (r=0.50).** Detail: [`12_E30_thesis.md`](12_E30_thesis.md#stage-2-wind-probe-on-e30-2026-05-19--done). |
 
 ---
 
@@ -120,17 +123,11 @@ Key change vs E05:
 
 ### E13 — tube+future — **COMPLETED 2026-05-12**
 
-Wallclock: ~3h 30m, 100 epochs. Out: `outputs_v5_e13_tube_future_cuda/`.
-
-Best **val 0.01812 @ ep92** (top-3 epochs: 92, 94, 93 — all within 0.0001). Train ep99 loss 0.00649. Monotonic descent, no late-stage divergence — contrast with E12 tube-only collapse past ep65.
-
-**Conclusion:** future-policy provides the regularization that prevents tube-collapse. 2.2× better than E12 tube-only (0.0402). Still 2.2× *worse* than E09 full-mix (0.00831) — cross_time component contributes the remaining gap (pending E14 confirmation).
-
-**Curve:** `figures/E13_tube_future_cuda_loss.png` (regenerate via `scripts/plot_loss_curves.py`).
+~3h 30m. **Best val 0.01812 @ ep92.** Monotonic, no late divergence. Future-policy prevents tube-collapse. 2.2× better than E12; 2.2× worse than E09. Curve: `figures/E13_tube_future_cuda_loss.png`.
 
 ### E14 — tube+cross — **COMPLETED 2026-05-12**
 
-ep0–40 first attempt, host reboot 21:34 (driver fresh-load 21:37:03; no Py/OOM error). Resumed ~22:30 via `--resume last.pt`; ran to ep99. **Best val 0.01172 @ ep91**, last 0.01199 ep99 (n_val=99, one ep lost over resume). Monotonic, no E12-style late divergence. Out: `outputs_v5_e14_tube_cross_cuda/` (remote 5060ti). Cross_time alone: 2.7× better than E12, 1.5× better than E13, still 1.4× worse than E09 and 2.2× worse than E15 — pair < trio.
+ep0–40 first attempt, host reboot 21:34, resumed via `--resume last.pt`. **Best val 0.01172 @ ep91** (n_val=99). Monotonic. Cross_time alone: 2.7× better than E12, 1.5× better than E13, 1.4× worse than E09, 2.2× worse than E15 — pair < trio.
 
 ### E15 — uniform mix — **COMPLETED 2026-05-13 — NEW SOTA**
 
@@ -193,8 +190,8 @@ Prediction (per config header): starved mask (0.60) → cheap train, val degrade
 
 **Caveat**: B uses E09's mix; if E12-E15 unseats E09's mix, B may need re-run.
 
-**E17 (τ=0.990) — DONE:** best **val 0.00761 @ ep99**, monotonic. Beats E09 anchor — faster target turnover helps at sanity scale.
+**E17/E18 DONE** — see summary table + F11/F12. Monotonic τ↓-better.
 
-**E18 (τ=0.994) — DONE:** best **val 0.00938 @ ep99**, monotonic. Mid-sweep; worse than E17, better than E09.
+**Launch context**: First queue-dispatched runs to succeed. Prior 13 controller launches (May 8 onward, ids 21–35) died ~35s due to `$TMUX` leak (controller daemon ran inside its own tmux, subprocess spawned `tmux new-session` nested). Fixed `4db3259` (`env -u TMUX`). E17/E18 ran on mini_mps (~10.5h). E20/E25–E28 on 5060ti CUDA (~3.4h).
 
-**Launch context**: First queue-dispatched runs to succeed. Prior 13 controller launches (May 8 onward, ids 21–35) died ~35s due to `$TMUX` leak (controller daemon ran inside its own tmux, subprocess spawned `tmux new-session` nested). Fixed `4db3259` (`env -u TMUX`). CONFIRMED by 90s+ survival of id=37. E17/E18 ran on mini_mps (~10.5h each). E20/E25–E28 on 5060ti CUDA (~3.4h each, matching E12-E15 actual).
+E30 v2 full detail → [`12_E30_thesis.md`](12_E30_thesis.md). E30-probe (Stage-2) results in same file.

@@ -1,0 +1,60 @@
+# Wind-flux probe — frozen E30 thesis-curated encoder (dim=384, 12L, ep99 val=0.00268).
+# Trains LinearProbe and MLPProbe heads via two passes (kind: linear|mlp).
+# Splits mirror E30 encoder split exactly (train_cubes/val_cubes verbatim, no shuffle).
+
+encoder:
+  ckpt: outputs_v5_thesis_curated/best.pt
+  feat_tag: E30          # cache files: data/<harp>_feat_E30.npy
+  dim: 384               # ViT-Small (thesis-curated)
+
+data:
+  manifest_path: data/manifest.json
+  data_dir: data/
+  # Verbatim from configs/v5_thesis_curated.yaml — guarantees probe-train cubes
+  # were encoder-train cubes, probe-val cube was encoder-val. main_probe uses
+  # these lists directly when both are set (skips split_cubes_for_probe shuffle).
+  train_cubes:
+    - harp_219
+    - harp_316
+    - harp_83
+    - harp_45
+    - harp_318
+    - harp_43
+    - harp_26
+    - harp_116
+    - harp_49
+    - harp_156
+    - harp_8
+    - harp_274
+    - harp_54
+  val_cubes:
+    - harp_221
+    - harp_11930
+    - harp_86
+  # Holdout (probe-only eval, never seen by encoder):
+  #   harp_17, harp_51, harp_may2024, harp_nov2025, harp_245
+  val_fraction: 0.0      # ignored when train_cubes/val_cubes set
+  split_seed: 0
+  target:
+    abs_value: true
+    clip: 1.0e7
+
+probe:
+  kind: linear           # 'linear' | 'mlp' (override via --kind)
+  hidden: 256            # MLP only
+  dropout: 0.1
+
+training:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 60
+  batch_size: 256
+  shuffle: true
+  num_workers: 0
+
+logging:
+  out_dir: outputs_probe/E30_linear
+
+device:
+  prefer: cpu            # cached features → CPU is plenty
