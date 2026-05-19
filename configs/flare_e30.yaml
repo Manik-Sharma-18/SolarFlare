@@ -1,0 +1,55 @@
+# Flare binary classifier — frozen E30 thesis-curated encoder (dim=384).
+# Predicts: P(any flare class >= cls in next window_hr hours).
+# Splits mirror E30 encoder split (configs/v5_thesis_curated.yaml + configs/probe_e30.yaml).
+
+encoder:
+  ckpt: outputs_v5_thesis_curated/best.pt
+  feat_tag: E30
+  dim: 384
+
+label:
+  cls: M                 # 'C' | 'M' | 'X'  (X is too sparse for binary on 19 cubes)
+  window_hr: 24          # forward window. matches Prithish's TSS report cadence
+
+data:
+  manifest_path: data/manifest.json
+  data_dir: data/
+  # Verbatim from configs/probe_e30.yaml — date-named cubes auto-dropped at load
+  # (no NOAA mapping → no label files).
+  train_cubes:
+    - harp_219
+    - harp_316
+    - harp_83
+    - harp_45
+    - harp_318
+    - harp_43
+    - harp_26
+    - harp_116
+    - harp_49
+    - harp_156
+    - harp_8
+    - harp_274
+    - harp_54
+  val_cubes:
+    - harp_221
+    - harp_11930
+    - harp_86
+
+head:
+  kind: linear           # 'linear' | 'mlp' (override via --kind)
+  hidden: 256            # MLP only
+  dropout: 0.1
+
+training:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 60
+  batch_size: 256
+  num_workers: 0
+
+logging:
+  out_dir: outputs_flare/E30_M_24h_linear
+
+device:
+  prefer: cpu
