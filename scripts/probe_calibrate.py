@@ -42,6 +42,21 @@ def fit_affine(pred_cal: np.ndarray, y_cal: np.ndarray) -> tuple[float, float]:
     return float(a), float(b)
 
 
+def fit_log_affine(pred_cal: np.ndarray, y_cal: np.ndarray) -> tuple[float, float]:
+    """log(y) = a*log(pred) + b → y = exp(b) * pred^a. Robust to multiplicative tails."""
+    m = np.isfinite(pred_cal) & np.isfinite(y_cal) & (y_cal > 0) & (pred_cal > 0)
+    if m.sum() < 5: return 1.0, 0.0
+    a, b = np.polyfit(np.log(pred_cal[m]), np.log(y_cal[m]), 1)
+    return float(a), float(b)
+
+
+def apply_log(pred: np.ndarray, a: float, b: float) -> np.ndarray:
+    out = np.full_like(pred, np.nan)
+    m = pred > 0
+    out[m] = np.exp(a * np.log(pred[m]) + b)
+    return out
+
+
 def calibrate_cube(harp: str, ds: ProbeFrameDataset, head, stats, device,
                    cal_frac: float = 0.30) -> dict:
     arrs = ds.per_cube_arrays()[harp]
@@ -59,39 +74,48 @@ def calibrate_cube(harp: str, ds: ProbeFrameDataset, head, stats, device,
 
     a, b = fit_affine(pred[cal_mask], y_eval[cal_mask])
     pred_cal = pred * a + b
+    a_log, b_log = fit_log_affine(pred[cal_mask], y_eval[cal_mask])
+    pred_log = apply_log(pred, a_log, b_log)
 
-    yt = y_eval[eval_mask]; yp_raw = pred[eval_mask]; yp_cal = pred_cal[eval_mask]
+    yt = y_eval[eval_mask]; yp_raw = pred[eval_mask]
+    yp_cal = pred_cal[eval_mask]; yp_log = pred_log[eval_mask]
     return {
         "harp": harp, "n_valid": int(valid_idx.size), "n_cal": n_cal,
-        "n_eval": int(eval_mask.sum()), "a": a, "b": b,
+        "n_eval": int(eval_mask.sum()), "a": a, "b": b, "a_log": a_log, "b_log": b_log,
         "raw":  {"r2": _r2(yt, yp_raw), "r": _pearson(yt, yp_raw),
                   "mae": _mae(yt, yp_raw), "mape": _mape(yt, yp_raw)},
         "cal":  {"r2": _r2(yt, yp_cal), "r": _pearson(yt, yp_cal),
                   "mae": _mae(yt, yp_cal), "mape": _mape(yt, yp_cal)},
+        "log":  {"r2": _r2(yt, yp_log), "r": _pearson(yt, yp_log),
+                  "mae": _mae(yt, yp_log), "mape": _mape(yt, yp_log)},
     }
 
 
 def write_md(out_path: Path, results_by_kind: dict[str, list[dict]]) -> None:
     lines = ["# Per-cube affine calibration of probe predictions\n"]
-    lines.append("Fit y = a·pred + b on leading 30% of each cube; eval on remaining 70%.")
-    lines.append("Tests scale-mismatch hypothesis. Compares raw probe vs calibrated.\n")
+    lines.append("Linear cal: y = a·pred + b. Log cal: log(y) = a·log(pred) + b (robust to heavy tails).")
+    lines.append("Fit on leading 30% of each cube; eval on remaining 70%.\n")
     for kind, rows in results_by_kind.items():
         lines.append(f"\n## Probe = {kind}\n")
-        lines.append("| Cube | n_eval | a | b | raw R² / MAPE | **cal R² / MAPE** |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| Cube | n_eval | raw R²/MAPE | lin a,b | **lin R²/MAPE** | log a,b | **log R²/MAPE** |")
+        lines.append("|---|---|---|---|---|---|---|")
         for r in rows:
             if r.get("skipped"):
-                lines.append(f"| {r['harp']} | — | — | — | skipped | skipped |")
+                lines.append(f"| {r['harp']} | — | skipped | — | — | — | — |")
                 continue
             lines.append(
-                f"| {r['harp']} | {r['n_eval']} | {r['a']:+.3f} | {r['b']:+.2e} "
+                f"| {r['harp']} | {r['n_eval']} "
                 f"| {r['raw']['r2']:+.3f} / {r['raw']['mape']:.1f}% "
-                f"| **{r['cal']['r2']:+.3f} / {r['cal']['mape']:.1f}%** |"
+                f"| {r['a']:+.2f}, {r['b']:+.1e} "
+                f"| **{r['cal']['r2']:+.3f} / {r['cal']['mape']:.1f}%** "
+                f"| {r['a_log']:+.2f}, {r['b_log']:+.1f} "
+                f"| **{r['log']['r2']:+.3f} / {r['log']['mape']:.1f}%** |"
             )
-        # Aggregate medAPE.
-        vals = [r["cal"]["mape"] for r in rows if not r.get("skipped") and np.isfinite(r["cal"]["mape"])]
-        if vals:
-            lines.append(f"\n**Median across cubes (calibrated medAPE):** {np.median(vals):.1f}%\n")
+        for key, label in (("cal", "linear"), ("log", "log")):
+            vals = [r[key]["mape"] for r in rows
+                    if not r.get("skipped") and np.isfinite(r[key]["mape"])]
+            if vals:
+                lines.append(f"\n**Median across cubes ({label}-cal medAPE):** {np.median(vals):.1f}%")
     out_path.write_text("\n".join(lines) + "\n")
 
 

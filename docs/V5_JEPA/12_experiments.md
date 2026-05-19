@@ -47,6 +47,7 @@ Config scale: **sanity** = dim 192, 4 cubes, t_in=4/t_out=2. **path_a** = dim 38
 | E31 | 2026-05-16 | **LOW-DIM long**: dim=192/L=6 enc, L=4/d=192 pred, 19 train cubes, 80ep×1000 steps. Cross-attn predictor toggle (Option A). Same winners (τ=0.990, r=0.75, uniform mix, slow curric). | mini_mps | 20 (resumed) | 0.0647 (ep20) | Running | Cross-attn fix at ep20 — see F12. Cfg: `v5_e31_lowdim_long.yaml`. ETA ~3d. |
 | E30-probe | 2026-05-19 | wind-flux probe on E30 v2 features (linear + MLP, dim=384, splits mirror encoder). | mac mini CPU | 60 (linear ep17 best, MLP ep2 best) | val R²=**0.700/0.729** r=**0.84/0.87**; novel R²=+**0.17/+0.23** r=**0.43/0.50** | — | Stage-2 probe. **Novel transfer flipped from random (E11 r=0.06) to meaningful (r=0.50).** Detail: [`12_E30_thesis.md`](12_E30_thesis.md#stage-2-wind-probe-on-e30-2026-05-19--done). |
 | E30-probe-cal | 2026-05-19 | per-cube affine y=a·ŷ+b on linear/MLP probes; cal-frac 30/70. | mac mini CPU | — | **median medAPE 9.6% (linear) / 11.8% (MLP)** across 8 cubes; 4/5 novel <17%; harp_245 outlier | — | **F9 CONFIRMED** (calibration not capacity). Raw novel R² −30→+0.66 (harp_17), −10.8→+0.66 (harp_51). |
+| E30-probe-cal-log | 2026-05-19 | log-space affine log(y)=a·log(pred)+b on same probes; 30/70 split. | mac mini CPU | — | median medAPE 9.9% / 10.1%; **mean novel 52%→13%**; harp_245 R² −0.15→**+0.45**, MAPE 220%→39% | — | Power-law cal robust to heavy-tail novel cubes. 4/5 novel beat persistence. harp_245 still loses (sparse spikes + flat target). |
 
 ---
 

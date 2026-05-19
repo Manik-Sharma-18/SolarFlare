@@ -58,8 +58,9 @@ Source for each: `12_experiments.md` summary table + per-experiment section.
 
 - **Evidence (E11, E09 features):** median per-cube Pearson r ≈ 0.73 on 17 novel cubes; absolute medAPE 46% novel vs 17.4% encoder-val. XGBoost lifts train R² 0.20→0.61 but novel aggregate flat → not capacity.
 - **Evidence (E30-probe-cal, E30 v2 features, 2026-05-19):** raw novel R² −30 (harp_51) to −10 (harp_17) → +0.18 to +0.74 after per-cube affine y=a·ŷ+b (30% cal / 70% eval). **Median medAPE 22% (raw) → 9.6% (calibrated) across 8 cubes.** 4/5 novel cubes reach <17% medAPE — matches val cubes. F9 hypothesis fully validated.
-- **Levers that work:** per-cube affine calibration (1 fit per cube, 30% holdout). Closes ~70% of medAPE gap.
-- **Lever that does NOT work universally:** harp_245 fits a=3.7, b=−6.6e3 → calibration extrapolates wildly (220% medAPE). Persistence baseline beats encoder on this cube — structurally wrong, not scale-shifted. 1/5 novel cubes resist calibration.
+- **Levers that work:** per-cube affine calibration (1 fit per cube, 30% holdout). Linear-space closes ~70% of medAPE gap on 4/5 novel cubes. **Log-space (`log(y)=a·log(pred)+b`) preferred — robust to heavy-tail cubes.** Median medAPE tied (9.6% lin / 9.9% log) but mean drops 52%→13% under log-cal.
+- **Investigated outlier — harp_245:** target heavy-tailed (std/mean=3.0 vs ~0.2 elsewhere; max 2.3e+05 ≈ 100× median). Spikes concentrated in cal half → LS polyfit fit a=3.71, b=−6.6e+03, extrapolates wildly (220% MAPE). Log-cal stabilises it (R² −0.15→+0.45, MAPE 220%→38.7%). Persistence still wins on this cube (medAPE 5.5%) because target is flat between rare spikes (acf1=0.13 but median APE tiny). Diagnostic: `scripts/diagnose_harp245.py`.
+- **vs persistence (log-cal, novel cubes):** 4/5 wins (harp_17 13% vs 28%, harp_51 12% vs 23%, harp_may2024 5% vs 10%, harp_nov2025 8% vs 11%). harp_245 loses (sparse-spike regime) — flag for AR-level OOD detection.
 - **Failed levers:** spatial-mean Δy probe (collapses inter-frame variance), richer pooling pending.
 - **Tag:** CONFIRMED twice (E11 + E30-probe-cal). Artifacts: `outputs_probe/E30_eval/probe_calibration.md`.
 

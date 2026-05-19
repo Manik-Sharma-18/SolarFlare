@@ -28,7 +28,8 @@ Date: 2026-05-19. Branch: `v5-jepa-lora`.
 | **THESIS curated (dim=384/L=12, 13 train cubes, 100ep×2000 steps)** | **`v5_thesis_curated.yaml`** | **0.00268** | **99/100** | **E30 v2** | **SOTA — 49% below E15 floor, 67% below E09 anchor** |
 | Stage-1 wind probe (linear) | on E09 features | R²=0.45 / medAPE 17.4% (harp_51) | — | E11 | calibration not capacity (F9) |
 | **Stage-2 wind probe** (linear/MLP) | on E30 v2 features | val R²=**0.700/0.729** r=**0.84/0.87**; novel R²=**+0.17/+0.23** r=**0.43/0.50** | — | E30-probe | encoder generalises to unseen ARs (E11 novel was random) |
-| **+ per-cube affine cal** (linear) | leading 30% / eval 70% | **median medAPE 9.6%** across 8 cubes; 4/5 novel <17% | — | E30-probe-cal | **F9 CONFIRMED** — scale mismatch, not capacity. harp_245 outlier. |
+| **+ per-cube affine cal** (linear) | leading 30% / eval 70% | **median medAPE 9.6%** across 8 cubes; 4/5 novel <17% | — | E30-probe-cal | **F9 CONFIRMED** — scale mismatch, not capacity. harp_245 outlier (linear cal explodes). |
+| **+ log-space cal** (linear probe) | log(y)=a·log(pred)+b | **median medAPE 9.9%; mean 13%** (was 52%); 7/8 cubes improve; harp_245 R² −0.15→+0.45 | — | E30-probe-cal | log-cal robust to heavy-tail novel cubes. 4/5 novel still beat persistence. |
 
 Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experiments_findings.md`](12_experiments_findings.md). Archive: [`12_experiments_archive.md`](12_experiments_archive.md).
 
@@ -77,7 +78,8 @@ Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experi
 - **E30 THESIS curated v2 DONE** (2026-05-19 21:26 IST): 13 train / 3 val / 5 holdout, 100ep × 2000 steps = 200K opt steps. **Final val 0.002680 ep99 — SOTA. 49.4% below E15 floor (0.00530), 67.7% below E09 anchor (0.00831).** Monotonic descent ep57→99 (no overfit). s/step 0.842 locked all 100ep. Holdout: harp_17, harp_51, harp_may2024, harp_nov2025, harp_245. Cfg: `configs/v5_thesis_curated.yaml`. Curves: `figures/E30_v2_thesis_curated_loss.png`, `figures/E30_v2_vs_sanity.png`.
 - **E16 capacity arm STALE.** Last log 2026-05-12 21:29 ep5. Slot preempted by EMA sweep. Superseded by E30 v2 thesis.
 - **Stage-2 probe DONE** (2026-05-19): linear + MLP heads on frozen E30 v2 features (spatial pool, dim=384). Splits mirror encoder. **Val R² 0.700→0.729 (linear→MLP), r 0.84→0.87.** **Novel cubes R² +0.17/+0.23, r 0.43/0.50** — was random (r=0.06) on E09. Detail: [`12_E30_thesis.md`](12_E30_thesis.md#stage-2-wind-probe-on-e30-2026-05-19--done).
-- **Per-cube affine calibration DONE** (2026-05-19): fit y=a·ŷ+b on leading 30% of each cube. **Median medAPE collapses 22%→9.6%.** 4/5 novel cubes reach <17% medAPE (matches val cubes). Per-cube R² flips from −10 to −30 (raw) to +0.18 to +0.74 (calibrated). **F9 CONFIRMED**: scale-mismatch, not capacity. harp_245 outlier (a=3.7 extrapolates; persistence beats encoder on this cube — structurally wrong, not scale-shifted).
+- **Per-cube affine calibration DONE** (2026-05-19): fit y=a·ŷ+b on leading 30% of each cube. **Median medAPE collapses 22%→9.6%.** 4/5 novel cubes reach <17% medAPE (matches val cubes). Per-cube R² flips from −10 to −30 (raw) to +0.18 to +0.74 (calibrated). **F9 CONFIRMED**: scale-mismatch, not capacity. harp_245 outlier (linear cal explodes to a=3.7, b=−6.6e3; target has 100× spikes in cal split).
+- **Log-space calibration DONE** (2026-05-19): `log(y)=a·log(pred)+b → y=exp(b)·pred^a`. Matches multiplicative wind-flux structure (spans 3 OOM). **harp_245 R² −0.15→+0.45, MAPE 220%→38.7%** — outlier no longer broken. 7/8 cubes improve under log-cal. Median tied with linear-cal (9.9% vs 9.6%) but **mean novel medAPE 52% → 13%** — robust default. 4/5 novel cubes still beat persistence (harp_17/51/may2024/nov2025).
 
 ---
 
