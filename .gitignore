@@ -136,3 +136,15 @@ dmypy.json
 
 # Pytest
 .pytest_cache/
+TinyTeX-v2026.05.tgz
+outputs_v5_*/
+outputs_flare/
+outputs_probe/
+outputs/
+._*
+.DS_Store
+*.tgz
+email_data/
+WhatsApp*.jpeg
+data_processed/
+data_magnetogram/

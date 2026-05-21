@@ -1,0 +1,39 @@
+# Wind-flux probe config — frozen E09 mini encoder, abs target, log-z norm.
+# Trains LinearProbe and MLPProbe heads in two passes (kind: linear|mlp).
+
+encoder:
+  ckpt: outputs_v5_mini_mask_on_slow/best.pt
+  feat_tag: E09          # cache files: data/<harp>_feat_E09.npy
+  dim: 192               # must match cached feature width
+
+data:
+  manifest_path: data/manifest.json
+  data_dir: data/
+  # Same split logic as E09 encoder — train cubes leak into encoder train,
+  # val cube was held out by encoder. Probe primary val = same held-out cube.
+  cube_allowlist: [harp_17, harp_83, harp_45, harp_51]
+  val_fraction: 0.34
+  split_seed: 0
+  target:
+    abs_value: true
+    clip: 1.0e7
+
+probe:
+  kind: linear           # 'linear' | 'mlp'
+  hidden: 256            # used for MLP only
+  dropout: 0.1
+
+training:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 60
+  batch_size: 256
+  shuffle: true
+  num_workers: 0
+
+logging:
+  out_dir: outputs_probe/
+
+device:
+  prefer: cpu            # CPU is plenty for cached features; avoids MPS contention with E10

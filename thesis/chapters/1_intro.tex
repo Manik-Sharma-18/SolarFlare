@@ -1,0 +1,217 @@
+\chapter{Introduction}
+\label{ch:intro}
+
+\section{Concept and motivation}
+\label{sec:intro-concept}
+
+Solar flares are the dominant driver of high-energy space weather.
+A single $\mathrm{X}$-class flare deposits between $10^{25}$ and
+$10^{26}$~$\mathrm{J}$ of energy into the corona on a timescale of
+minutes, accelerating charged particles to GeV energies and emitting
+a short pulse of soft and hard X-rays~\cite{aschwanden2005physics,priest2014mhd}. The terrestrial consequences
+are operational: short-wave radio absorption on the dayside,
+single-event upsets in low-orbit electronics, navigation outages,
+and elevated radiation dose to crewed missions. The minimum useful
+forecast horizon is between six and twenty-four
+hours~\cite{bobra2014sharp}. The pre-flare configuration of the
+photospheric magnetic field is the most reliable observable known to
+contain that information.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{assets/figures/precursor_demo.pdf}
+\caption{Motivation: spatial-mean signed winding flux
+$\langle W \rangle(t)$ on the active region harp\_49 (NOAA~11079)
+across 2010-06-08 to 2010-06-13, with the two
+HEK/GOES-catalogued flares (B4.6, M1.0) overplotted as vertical
+lines. The blue band marks the six-to-seven-hour precursor window
+of Raphaldini~et~al.~\cite{raphaldini2022winding} preceding the
+M1.0 event. The quantity $\langle W \rangle(t)$ is the regression
+target of the downstream probe in Chapter~\ref{ch:probe}; the
+present thesis tests whether a JEPA-pretrained encoder reproduces
+this curve from frozen features on active regions it has never
+seen.}
+\label{fig:precursor-demo}
+\end{figure}
+
+\textbf{Thesis statement.} This work demonstrates that a
+joint-embedding predictive architecture, pretrained from scratch
+on twenty-one active-region cubes, yields a frozen feature
+extractor whose features regress the literature-validated flare
+precursor $\langle W \rangle(t)$ of
+Raphaldini~et~al.~\cite{raphaldini2022winding} on five unseen
+active regions to median absolute percentage error $9.9\%$,
+beating lag-one persistence on four of five (Finding~F9). The
+present chapter sets out the motivation; the validation is
+recorded in Chapter~\ref{ch:probe}.
+
+The present work pretrains a representation of one component of the
+photospheric magnetic field --- the signed magnetic winding flux
+$W(\mathbf{r}, t)$, a pseudoscalar tracer of the chirality of
+emerging flux tubes~\cite{prior2020helicity,raphaldini2022winding}
+--- with the explicit goal of producing a frozen feature extractor
+suitable for downstream flare forecasting. No flare-event labels are
+used during pretraining; the representation is acquired by
+self-supervised masked prediction in embedding space.
+
+\section{Problem statement}
+\label{sec:intro-problem}
+
+Modern flare-forecasting systems separate into two regimes. Pixel-
+or image-only forecasters operate directly on
+Helioseismic and Magnetic Imager (HMI)~\cite{scherrer2012hmi} or
+Atmospheric Imaging Assembly (AIA) cutouts and reach a true skill
+statistic (TSS) of approximately $0.7$. Multimodal hybrids that
+fuse pixel features with photospheric scalar summaries (the
+Space-weather HMI Active Region Patch (SHARP) parameters of
+Bobra and Couvidat~\cite{bobra2014sharp}) reach
+a higher TSS reported in the published flare-forecasting
+literature. The gap is consistent across architectures and is
+interpreted as an information ceiling on pixel-only inputs rather
+than a deficiency of any particular model.
+
+A second, separate problem concerns pretraining. The standard
+video self-supervised regime~\cite{tong2022videomae,wang2023videomaev2,
+he2022mae} validates on roughly three thousand videos before
+linear-probe quality is judged informative. Solar physics offers
+considerably less: the present corpus consists of twenty-one
+active-region cubes. The constraint that defines the present work
+is therefore: pretrain a self-supervised encoder for solar magnetic
+data at a corpus size two orders of magnitude smaller than the
+nearest published regime, without sacrificing the architectural
+template that succeeded in the larger regime.
+
+\section{Prior investigations}
+\label{sec:intro-prior}
+
+Three lines of prior work bear on the design.
+
+\textit{Pixel-space reconstruction.} The earliest version of the
+present pipeline (here designated V4) used a pixel-space forecaster
+trained with a combination of $L_{1}$ and structural-similarity
+losses~\cite{pathak2016contextencoders}. The model exhibited the
+characteristic ``persistence collapse'' of pixel-MSE forecasters:
+the output decayed to the input frame as training progressed,
+because the optimal pixel-space prediction of a noisy field is
+its conditional mean and the conditional mean over short horizons
+is dominated by the most recent observation. The collapse is a
+published failure mode of pixel-space reconstruction objectives on
+high-frequency natural fields.
+
+\textit{Foundation models for solar physics.} The NASA--IBM Surya
+model~\cite{surya2025,suryabench2025} pretrains on nine years of
+twelve-channel Solar Dynamics Observatory (SDO) data at
+$4096^{2}$ spatial resolution, using forecasting as pretext. Surya is the strongest published
+pixel-only solar foundation model and reaches a flare TSS of
+$0.436$. An earlier attempt within the present work (designated
+Path~A) explored a Low-Rank Adaptation
+(LoRA)~\cite{hu2021lora} of the public Surya weights to the active-region cube format. That path
+was abandoned in May~2026 once it became clear that the
+HelioSpectFormer backbone is hard-locked to $4096 \times 4096$
+inputs at sixty-minute cadence with thirteen channels, none of
+which the present cube format supplies. The architectural
+incompatibility is recorded as Finding~F10 and forms the
+motivation for Path~B (Finding~F10 in
+Section~\ref{sec:exp-findings}).
+
+\textit{Joint-embedding predictive architectures.} The V-JEPA
+family~\cite{assran2024vjepa,vjepa2_2025,vjepa21_2026,assran2023ijepa}
+demonstrates that prediction in embedding space, with an
+exponential-moving-average (EMA)-updated target encoder and no
+contrastive negatives, scales to
+spatiotemporal video corpora and outperforms pixel reconstruction
+on downstream probes. The V-JEPA-2-AC variant adds a block-causal
+predictor and is the architectural template adapted in
+Chapter~\ref{ch:architecture}.
+
+\section{Scope and objectives}
+\label{sec:intro-scope}
+
+This thesis develops Path~B: a joint-embedding predictive
+architecture pretrained from scratch on twenty-one active-region
+cubes of magnetic winding flux. Path~A is treated as historical
+context (\S\ref{sec:intro-prior}); no LoRA adaptation of Surya is
+attempted in the present work. The primary downstream task is the
+spatial-mean winding-flux regression probe of
+Chapter~\ref{ch:probe}; a secondary binary flare classifier is
+reported in \S\ref{sec:probe-flare} on labels merged from the
+Geostationary Operational Environmental Satellite (GOES) X-ray
+event catalogue for the nineteen labelled cubes of the corpus.
+
+The explicit objectives are:
+\begin{enumerate}
+\item Validate the V-JEPA-2-AC template at a small scale (twenty-one
+cubes, twelve-minute cadence, single-channel signed pseudoscalar
+field with variable spatial extent).
+\item Identify the operating point in the four-dimensional design
+space spanned by mask-policy mixture, mask ratio, target-encoder
+decay~$\tau$, and training-step budget.
+\item Probe the resulting frozen features for the spatial-mean
+winding flux $\langle W \rangle(t)$, the literature-supported
+flare precursor of Raphaldini et al.~\cite{raphaldini2022winding},
+and quantify the gap between pretraining-only performance and
+operational flare-forecast skill.
+\end{enumerate}
+
+\section{Contributions}
+\label{sec:intro-contrib}
+
+The contributions of the present work, by chapter, are as follows.
+
+\begin{itemize}
+\item Chapter~\ref{ch:data}: a preprocessing pipeline for variable-
+shape signed pseudoscalar magnetic-field data, including a
+chirality-respecting $D_{4}$ augmentation scheme, a winding-flux
+guard of $|W| \le 10^{8}$, and a cube-level
+(HMI Active Region Patch (HARP) identity) holdout convention.
+
+\item Chapter~\ref{ch:architecture}: an adaptation of the
+V-JEPA-2-AC template to signed scalar fields of variable extent,
+with a five-family mask catalogue, a two-stage curriculum, and a
+loss-mask intersection $M_{\text{loss}} = M_{\text{mask}} \land
+M_{\text{valid}} \land M_{\text{pad}}$ that excludes padding,
+sparse-data, and unmasked-target tokens by construction.
+
+\item Chapter~\ref{ch:experiments}: a four-family ablation
+covering mask-policy mixture (E12--E15), EMA decay
+(E17--E20), mask ratio (E25--E28), and the scaling step
+to the thesis-scale run (E30). The uniform mask mixture is shown
+to dominate every tube-heavy mixture tested (Finding~F11) and the
+EMA-decay response is monotone in the tested range
+(\S\ref{sec:exp-ema}).
+
+\item Chapter~\ref{ch:probe}: a frozen-feature wind-flux probe on
+the E30~v2 thesis-scale checkpoint, attaining $R^{2} = 0.73$
+(multilayer perceptron (MLP), $r = 0.87$, median absolute
+percentage error (medAPE) of $7.3\%$) on the encoder-validation
+cubes and a medAPE of $9.9\%$ on five novel cubes after a one-pair
+per-cube log-affine recalibration (Finding~F9, confirmed), beating
+the lag-one persistence baseline on four of five novel cubes; and
+a secondary frozen-feature flare classifier that delivers
+area-under-the-ROC-curve (AUC) $= 1.000$ and TSS $= 1.000$ on
+harp\_49 at the
+C$+$/12~h--MLP configuration, exceeding the persistence floor of
+$0.975$ on the densest mixed-label evaluation cube
+(Finding~F13).
+
+\item Chapter~\ref{ch:summary}: a roadmap toward operational
+forecasting, identifying the four components --- larger corpus,
+downstream head, persistence-anchored skill metrics, and
+multimodal SHARP fusion --- that separate the present pretraining
+result from a deployable forecaster.
+\end{itemize}
+
+\section{Organisation of the thesis}
+\label{sec:intro-org}
+
+Chapter~\ref{ch:background} reviews the physics of magnetic
+winding flux, the joint-embedding predictive doctrine, and the
+prior solar foundation-model literature. Chapter~\ref{ch:data}
+specifies the preprocessing pipeline. Chapter~\ref{ch:architecture}
+specifies the model. Chapter~\ref{ch:experiments} reports the
+ablations and the thesis-scale run. Chapter~\ref{ch:probe} reports
+the downstream probe and the flare-forecasting gap.
+Chapter~\ref{ch:summary} summarises the present contributions and
+proposes future work. Hyperparameter tables, the mask catalogue,
+the winding-flux clipping audit, and per-run convergence curves
+are recorded in Appendices~\ref{app:hyperparams}--\ref{app:curves}.

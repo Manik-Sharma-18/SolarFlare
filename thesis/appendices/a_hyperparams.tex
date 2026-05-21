@@ -1,0 +1,104 @@
+\chapter{Hyperparameters and Optimiser Settings}
+\label{app:hyperparams}
+
+This appendix records the hyperparameter sets used for the four
+load-bearing runs of Chapter~\ref{ch:experiments}. Settings not
+listed are inherited from the V-JEPA-2-AC defaults
+of~\cite{vjepa2_2025}; differences from these defaults are flagged
+explicitly.
+
+\section{Optimiser and schedule}
+\label{app:opt}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Field & Value \\
+\midrule
+Optimiser                   & AdamW \\
+Learning rate (peak)        & $1 \times 10^{-4}$ \\
+Weight decay                & $5 \times 10^{-2}$ \\
+$\beta_{1}, \beta_{2}$      & $0.9, 0.95$ \\
+Schedule                    & cosine decay over full epoch budget \\
+Warmup                      & $5$ epochs linear \\
+Mixed precision             & \texttt{bf16} autocast \\
+Gradient checkpointing      & predictor only \\
+\bottomrule
+\end{tabular}
+\caption{Optimiser settings, shared across all runs of
+Chapter~\ref{ch:experiments}.}
+\label{tab:opt}
+\end{table}
+
+\section{Sanity-scale anchor (E15)}
+\label{app:cfg-e15}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Field & Value \\
+\midrule
+Cubes (train / val)         & $4 \,/\, 1$ \\
+Epochs                      & $100$ \\
+Steps per epoch             & $500$ \\
+Embedding dim               & $192$ \\
+Encoder depth               & $4$ \\
+Predictor depth             & $6$ \\
+Patch size                  & $16 \times 16$ \\
+$t_{\text{in}}$             & $10$ \\
+$t_{\text{out}}$            & $4$ \\
+Mask ratio                  & $0.80$ \\
+Mask mixture                & $\{$tube$:0.34,$ future$:0.33,$ cross$:0.33\}$ \\
+$\mathit{tail\_only\_pct}$  & $0.25$ \\
+$\mathit{warmup\_pct}$      & $0.40$ \\
+EMA $\tau$                  & $0.996$ \\
+Best val (smooth-$L_{1}$)   & $0.00530$ at epoch $99$ \\
+\bottomrule
+\end{tabular}
+\caption{Configuration of the E15 uniform-mix sanity anchor, the
+floor against which subsequent ablations were measured.}
+\label{tab:cfg-e15}
+\end{table}
+
+\section{Thesis run (E30)}
+\label{app:cfg-e30}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Field & Value \\
+\midrule
+Cubes (train / val / holdout) & $13 \,/\, 3 \,/\, 5$ \\
+Epochs                        & $100$ \\
+Steps per epoch               & $2000$ \\
+Total optimiser steps         & $2 \times 10^{5}$ \\
+Embedding dim                 & $384$ \\
+Encoder depth                 & $12$ (ViT-Small) \\
+Predictor depth               & $6$ \\
+Patch size                    & $16 \times 16$ \\
+$t_{\text{in}}$               & $10$ \\
+$t_{\text{out}}$              & $4$ \\
+Mask ratio                    & $0.75$ \\
+Mask mixture                  & $\{$tube$:0.34,$ future$:0.33,$ cross$:0.33\}$ \\
+$\mathit{tail\_only\_pct}$    & $0.25$ \\
+$\mathit{warmup\_pct}$        & $0.40$ \\
+EMA $\tau$                    & $0.990$ \\
+Backend                       & CUDA (5060\,Ti) \\
+Throughput                    & $0.84$ s / step \\
+\bottomrule
+\end{tabular}
+\caption{Configuration of the E30 thesis run, anchored on the
+winning operating point identified by the ablations of
+Chapter~\ref{ch:experiments}.}
+\label{tab:cfg-e30}
+\end{table}
+
+The corresponding YAML configuration files are
+\texttt{configs/v5\_mini\_mask\_uniform\_cuda.yaml} for E15 and
+\texttt{configs/v5\_thesis\_curated.yaml} for E30. Holdout cubes
+for E30: \texttt{harp\_17}, \texttt{harp\_51},
+\texttt{harp\_may2024}, \texttt{harp\_nov2025},
+\texttt{harp\_245}.

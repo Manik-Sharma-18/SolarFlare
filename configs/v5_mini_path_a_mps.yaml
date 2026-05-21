@@ -1,0 +1,116 @@
+# V5.0 Path B on Mac Mini M4 Pro (64 GB unified) — 5060ti unavailable.
+# BIGGER-BACKBONE ARM: dim=256 / L=6 encoder + L=4 predictor (~14 M total).
+# Tests capacity ceiling on real 21-cube data — answers a question E09 (dim=192
+# /L=4 on 4 cubes) does NOT: does a wider/deeper backbone exceed E09's val
+# 0.00831 ceiling and improve probe novel-cube medAPE below the 46% / 21.5%
+# (post-affine) E11 baseline?
+# Goals:
+#   - 30 epochs × 300 opt steps = capacity test at ~30 h MPS wall-clock.
+#   - Bucket_by_shape + grad_checkpoint keep peak mem flat on big cubes
+#     (largest is 1285×1584 → 80×99=7920 tokens/frame at patch=16).
+#
+# Empirical (smoke step=20-80, this size on MPS): 2.46-3.49 s/mini-batch
+# steady, ~3 s avg. 300 × 4 × 3 = 60 min/ep × 30 ep ≈ 30 h.
+#
+# Launch with MPS high-water env var to avoid premature allocator failures:
+#   PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 \
+#     python3 main_v5.py --config configs/v5_mini_path_a_mps.yaml --device mps
+#
+# Mem mitigations active (from prior OOM lessons):
+#   - grad_checkpoint=true (per-block activation ckpt, ~3× peak saving)
+#   - bucket_by_shape=true (sampler avoids mixing big+small cubes per step)
+#   - compile=off (E08 OOM'd in SDPA backward when compile was on)
+#   - batch_size=1 + grad_accum=4 (single-sample peak)
+#   - num_workers=0 (MPS multi-worker unstable, also halves dataloader RSS)
+#   - bf16 (halves activation mem; E09 validated on MPS)
+#   - MPS uses manual SDPA path under mask + no_grad (predictor.py NaN guard)
+
+data:
+  zarr_dir: data/
+  manifest_path: data/manifest.json
+  t_in: 6
+  t_out: 2
+  pixel_scale_mm: 0.364
+  cadence_min: 12
+  norm: zscore_per_cube
+  augment: d4_chiral
+  splits: by_harp_id
+  val_fraction: 0.2
+  split_seed: 0
+  num_workers: 0                # MPS: workers > 0 unstable
+  bucket_by_shape: true
+  reject_window_with_time_zero: true
+
+model:
+  input_adapter:
+    in_ch: 1
+    out_ch: 13
+    patch_size: 16
+    pad_mode: constant
+    valid_mask_routing: separate
+  encoder:
+    dim: 256                    # vs 192 E09 / 384 path_a — capacity ceiling test
+    layers: 6                   # vs 4 E09 / 12 path_a
+    heads: 4
+    mlp_ratio: 4
+  predictor:
+    layers: 4                   # vs 3 E09 / 6 path_a
+    hidden: 256
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.0
+    drop_path: 0.05
+    block_causal: true
+    rope3d_units: physical
+  pixel_decoder:
+    enabled: false
+  patch_size: 16
+  masking:
+    enabled: true
+    policy_mix: {tube: 0.5, future: 0.3, cross_time: 0.2}
+    tube_short_area: 0.15
+    tube_long_area: 0.40
+    future_pct: 0.30
+    cross_time_pct: 0.30
+    target_ratio: 0.80
+    val_policy: tail
+    valid_token_threshold: 0.5
+    seed: 0
+    curriculum:
+      tail_only_pct: 0.25       # tail-only until ep7 (matches E09 ratio 0.25)
+      warmup_pct: 0.40          # blend ep7-19, full mix ep19+ (matches E09 ratio 0.40)
+
+loss:
+  primary: smooth_l1_embedding
+  pixel_aux_weight: 0.0
+
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.04
+  lr: 3.0e-4
+  schedule: cosine_warmup
+  warmup_pct: 0.10
+  min_lr_ratio: 0.01
+  epochs: 30
+  max_steps_per_epoch: 300      # ~60 min/ep at ~3 s/batch on MPS (~30 h for 30 ep)
+  batch_size: 1
+  grad_accum_steps: 4           # effective batch 4
+  grad_clip: 1.0
+  precision: bf16               # MPS supports bf16 since macOS 14; E09 validated
+  target_ema_decay: 0.996
+  grad_checkpoint: true         # required to keep peak activation mem flat
+  compile: "off"                # MPS: leave off
+  curriculum:
+    one_step_pct: 0.40
+    half_step_pct: 0.30
+    full_step_pct: 0.30
+
+logging:
+  out_dir: outputs_v5_mini_path_a_mps/
+  log_every: 20
+  val_every_epoch: 1
+  save_every_epoch: 1
+
+device:
+  prefer: mps

@@ -8,7 +8,7 @@
 > the long-term spec; current scaffold trains directly on AR cubes.
 
 Originally scoped as fallback if Path A fails OR if sovereign weights required —
-both conditions now met (Path A unviable, no encoder pretraining done yet).
+both conditions now met (Path A abandoned 2026-05-08 — HelioSpectFormer 4096-px lock; no encoder pretraining done yet).
 
 ## 4.1 Encoder pretrain corpus
 - **SuryaBench** (arXiv 2508.14107). SDO/HMI+AIA, 2010-2024, ML-ready, full solar cycle. Free.

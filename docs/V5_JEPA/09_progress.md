@@ -1,8 +1,9 @@
 # 09 — Implementation Progress
 
 **Branch:** `v5-jepa-lora`
-**Date:** 2026-05-08
-**Status:** Path B scaffold complete + MPS sanity green + 5-epoch CUDA sanity green on RTX 5060 Ti + outlier-fix (1e8 clip) re-run on MPS green (val_loss 0.0407, **5× better than prior 1e5 baseline**) + **mask catalog landed** (Strategy B / MAE-style zero-token, 5-epoch MPS sanity green, val_loss 0.1950 monotone-decreasing).
+**Date:** 2026-05-13
+**Index:** see [`INDEX.md`](INDEX.md) for entry-point hub (best-results table, concept pages, active research).
+**Status:** Path B scaffold complete. **E15 uniform mask mix new sanity SOTA — val 0.00530 ep99** (1.57× E09). F11 CONFIRMED. E12–E14 ablation arm done (tube-only diverges; pair < trio). E17 (τ=0.990) done, val 0.00761 — lower τ helps. E18 (τ=0.994) in flight on mini_mps. 5060ti slot free — relaunch capacity arm there. E16 capacity arm STALE (preempted at ep5).
 
 ---
 
@@ -78,7 +79,7 @@ Deps dropped from `requirements.txt`: `transformers`, `peft`, `huggingface_hub`.
 
 ### 1. Sentinel outliers in raw zarr cubes
 
-Quantity is **winding flux, not B-field** (per senior 2026-05-08): per-pixel max ~1e7; integrated AR ~1e13–1e14. Original `BZ_CLIP_GAUSS=1e5` clipped real signal. Fix: `WIND_FLUX_CLIP=1e8` in `zarr_loader.py` (10× margin). 9/10 cubes near-clean (≤832 outliers, ≤0.0005% frac); harp_8 still pathological (14,220 px, peak 1.68e10). Outliers → `valid_pixel_mask`, zeroed in `wind`; `cube_norm_stats` filters bounded values. Full audit: `docs/V5_JEPA/OUTLIERS.md`. Validated by 1e8 sanity rerun (val 0.0407 vs old 0.202, 5× better).
+Quantity is **winding flux, not B-field** (per senior 2026-05-08): per-pixel max ~1e7; integrated AR ~1e13–1e14. Original `BZ_CLIP_GAUSS=1e5` clipped real signal. Fix: `WIND_FLUX_CLIP=1e8` in `zarr_loader.py` (10× margin). 9/10 cubes near-clean (≤832 outliers, ≤0.0005% frac); harp_8 still pathological (14,220 px, peak 1.68e10). Outliers → `valid_pixel_mask`, zeroed in `wind`; `cube_norm_stats` filters bounded values. Full audit: [`concepts/wind_flux_clipping.md`](concepts/wind_flux_clipping.md). Validated by 1e8 sanity rerun (val 0.0407 vs old 0.202, 5× better).
 
 ### 2. val_loss=NaN — MPS SDPA bug under no_grad
 
@@ -117,80 +118,40 @@ The 1e8-clip MPS run is the pre-mask deployment-aligned baseline. CUDA 1e8 rerun
 
 ## Mask catalog landed (Strategy B — MAE-style zero-token, 2026-05-08)
 
-Per `docs/V5_JEPA/03_masks_and_pathak.md`. Two strategies considered:
+Catalog + curriculum + why-not-Pathak now in [`concepts/mask_strategies.md`](concepts/mask_strategies.md). Code: `solarflare_data/mask_catalog.py` (149 LOC, 22 tests). Strategy A (true V-JEPA sparse-token encoder) deferred — requires patchifier rewrite. E04 5-ep MPS sanity validated mask path end-to-end (val 0.195 ep4, finite + monotone). E09 100-ep slow curriculum converged val 0.00831 ep98 (F1 CONFIRMED).
 
-- **A — visible-only encoder (true V-JEPA):** rejected this PR. Requires
-  rewriting the per-frame ViT patchifier (`Conv2d(patch=16,stride=16)`
-  produces a rectangular grid; sparse tokens break the contract) plus the
-  predictor's `n == T·hp·wp` invariant. Out of scope under the 200-line cap.
-- **B — MAE-style zero-token masking (chosen):** masked patches multiplied
-  by 0 in pixel space *post-adapter* (chosen over pre-adapter so the 1×1
-  conv bias doesn't leak into masked positions). Context encoder runs on
-  full T with masked tokens zeroed. Target encoder runs on **clean** full T
-  in `no_grad`. Single predictor pass over `T·hp·wp` tokens. Loss restricted
-  to `mask & valid_token & token_pad_mask` (INTERSECTION not union — never
-  grade on outlier-clipped pixels).
+Pre-existing bug surfaced + fixed: `models/v5/input_adapter.py:make_token_pad_mask` zeroed the entire token mask when `0 < pad_h < patch` (Python `mask[-0:, :]` slices whole array). Rollout path tolerated it; mask path INTERSECTION was first consumer. Fix: gate slice on `n_pad_rows > 0` / `n_pad_cols > 0`.
 
-### Files shipped
-```
-solarflare_data/mask_catalog.py   ← short_tube/long_tube/future/cross_time/tail
-                                    + sample_mixed + curriculum_mix          (149 LOC)
-tests/test_mask_catalog.py        ← 22 tests, ratios ±3% on N=2000           (185 LOC)
-models/v5/jepa_model.py           ← _forward_masked added; rollout fallback  (179 LOC)
-training/jepa_trainer.py          ← per-batch sample_mixed + curriculum mix  (200 LOC)
-configs/v5_{sanity,path_a}.yaml   ← masking: block (mix, curriculum, seed)
-scripts/smoke_test_v5.py          ← --mask-policy {none,auto,tail,…}         (141 LOC)
-```
+---
 
-### Pre-existing bug surfaced
-`models/v5/input_adapter.py:make_token_pad_mask` zeroed the entire token
-mask when `0 < pad_h < patch` (because `pad_h // patch == 0` and Python
-`mask[-0:, :]` slices the whole array). Rollout path tolerated it; mask path
-INTERSECTION was first consumer to depend on it. Fixed by gating slice on
-`n_pad_rows > 0` / `n_pad_cols > 0`.
+## E30 v2 thesis run landed (2026-05-19 21:26 IST)
 
-### 5-epoch MPS sanity (mask catalog ON)
+Full ViT-Small (dim=384/L=12) on 13 curated train cubes, 100ep × 2000 steps, all sanity-sweep winners locked in (τ=0.990, ratio=0.75, uniform mix, slow curriculum). **Final val 0.002680 ep99 — SOTA.**
 
-Same `v5_sanity.yaml`, `--max-epochs 5`, MPS, mask `enabled: true` with
-default mix `{tube: 0.5, future: 0.3, cross_time: 0.2}`. Curriculum
-tail-only first 10% (epoch 0), linear blend 10-30%, full mix from epoch 1.5+.
+- 49.4% below E15 sanity floor (0.00530), 67.7% below E09 anchor (0.00831)
+- Monotonic descent ep57→99 (no overfit, no plateau)
+- s/step 0.842 locked all 100ep (~49.7 min/ep), wallclock ~52h
+- Survived 7h45m tailscale outage 2026-05-17 23:59→05-18 07:45 IST via `--resume`
+- BucketedShapeSampler with XL cubes excluded → 5.8× speedup vs E29b
 
-| Epoch | train_loss | val_loss (tail) |
-|-------|-----------:|----------------:|
-| 0 | 0.2345 | 0.2789 |
-| 1 | 0.2381 | 0.2504 |
-| 2 | 0.2237 | 0.2182 |
-| 3 | 0.2108 | 0.2010 |
-| 4 | 0.1988 | **0.1950** ← best |
+Detail: [`12_E30_thesis.md`](12_E30_thesis.md). Curves: `figures/E30_v2_thesis_curated_loss.png`, `figures/E30_v2_vs_sanity.png`.
 
-Both monotone decreasing; finite throughout; no NaN. Val_loss tail-policy
-≈ 5× pre-mask baseline (0.0407) as expected — encoder now shares capacity
-across diverse pretext tasks, not just deployment-aligned tail. Plan
-prediction was "looser than no-mask 0.0407, ≤ 0.10 in 5 epochs"; landed at
-0.195 still actively decreasing — full-scale 50-epoch run on `v5_path_a.yaml`
-needed to evaluate convergence. Sanity gate (finite + monotone + no NaN) passed.
+---
 
-What this validates:
-- Mask path end-to-end: sample → zero patches → context+target+predictor → masked-loss.
-- Curriculum transition (tail-only → full mix) numerically stable.
-- INTERSECTION loss-mask works under realistic `valid_pixel_mask` / `token_pad_mask`.
-- No-mask rollout fallback still passes smoke (`--mask-policy none`).
-- Determinism via `torch.Generator` + `masking.seed`.
+## Flare binary head on E30 — MIXED (2026-05-19)
+
+**M+/24h NEGATIVE.** Cross-cube novel agg AUC **0.443**; within-cube harp_49 AUC **0.252** vs persist **0.973**. Lag-1 floor too high at this class/window.
+
+**C+/12h MLP POSITIVE on harp_49.** Move to C+ (8 mixed eval cubes), 12h window (decorrelates persistence), 2-layer MLP on MPS. **harp_49 AUC 1.000, TSS 1.000 vs persist 0.975** — head beats persistence. Other cubes split (MLP destroys harp_54 0.951→0.425). C+/{6h,12h}×{linear,MLP} sweep documented; per-cube head/window selection required.
+
+JEPA SSL never sees flare labels (no direct leakage). Wind-flux regression transfers cleanly; flare classification transfers conditionally — frozen E30 features carry flare-relevant structure exploitable by nonlinear heads at the right class+window. Detail: [`10b_flare_prediction_gap.md`](10b_flare_prediction_gap.md).
 
 ---
 
 ## Pending
 
-- **CUDA parity** for mask catalog: re-run `v5_sanity.yaml` on 5060ti slot
-  via `launch_slot.sh` with masking enabled. MPS-only validated so far this PR.
-- **Full GPU run** on `configs/v5_path_a.yaml` (50 epochs, all 10 cubes,
-  batch>1 via bucketed sampler, `compile: default`, `grad_checkpoint: true`).
-  Will exercise ViT-Small dims (384), 6-layer predictor, drop_path=0.1,
-  full t_in=10/t_out=4 + the mask curriculum across the full schedule.
-- **Strategy A follow-up** (visible-only encoder, true V-JEPA): rewrite
-  `vit_encoder.py` patchifier to accept sparse tokens; rewire predictor
-  contract. Separate PR.
-- **Eval suite**: pixel-decoder ablation, CSI/HSS once decoder enabled,
-  persistence baseline comparison.
-- **Encoder feature cache** (`docs/V5_JEPA/06_data.md` §11.5): once
-  architecture settles, cache target embeddings to disk.
+- **Stage-2 wind probe** (queued): linear + MLP heads on E30 v2 `best.pt` features × 5 holdout cubes (harp_17, harp_51, harp_may2024, harp_nov2025, harp_245). Add per-cube affine calibration. Compare medAPE vs E11 baseline (46% novel, 17.4% encoder-val).
+- **E16 bigger-backbone MPS arm STALE** — last log 2026-05-12 21:29 ep5. Slot preempted; superseded by E30 v2.
+- **Strategy A follow-up** (visible-only encoder, true V-JEPA): rewrite `vit_encoder.py` patchifier to accept sparse tokens; rewire predictor contract. Separate PR.
+- **Eval suite**: pixel-decoder ablation, CSI/HSS once decoder enabled, persistence baseline comparison.
+- **Encoder feature cache** (`docs/V5_JEPA/06_data.md` §11.5): once architecture settles, cache target embeddings to disk.

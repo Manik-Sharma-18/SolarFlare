@@ -1,0 +1,115 @@
+# V5.0 Path B — E31: LOW-DIM LONG RUN (dims ablation).
+# Tests whether dim=192 (ViT-Tiny) matches thesis_3d (dim=384 ViT-Small).
+# E09 sanity (dim=192 4L) hit val=0.00831 ep98 — low dims CAN learn.
+# Schedule: more epochs to compensate smaller capacity.
+#
+# Timing measured on MPS: ~4.4s/step (similar to CUDA at dim=384).
+# MPS safety: cross_attn=true → K/V=context-only (25% of N) → cost 0.25N².
+#   Only rollout self-attn (val) still O(N²); harp_245/86 excluded for that.
+# 80 ep × 1000 steps × 4.4s ≈ 98h ≈ 4 days on Mac Mini MPS.
+# Target deadline: 2026-05-20.
+#
+# All ablation winners from thesis_3d carried over unchanged:
+#   1. Slow data curriculum (0.25/0.40) — F1/F7
+#   2. Uniform mask mix {0.34/0.33/0.33} — F11 / E15 SOTA
+#   3. EMA τ=0.990 — E17 winner
+#   4. mask target_ratio=0.75 — E26 winner
+
+data:
+  zarr_dir: data/
+  manifest_path: data/manifest.json
+  t_in: 10
+  t_out: 4
+  pixel_scale_mm: 0.364
+  cadence_min: 12
+  norm: zscore_per_cube
+  augment: d4_chiral
+  splits: by_harp_id
+  val_fraction: 0.2
+  split_seed: 0
+  num_workers: 0
+  bucket_by_shape: true
+  reject_window_with_time_zero: true
+  # MPS crash: softmax bf16→fp32 internal buffer bytes > INT_MAX when tpf > ~1900.
+  # cross_attn buffer = B*H*N*N_ctx*4 bytes, N=14*tpf, N_ctx≈0.25N → tpf<1912.
+  # Excluded: harp_245(8e4), harp_86(3e3), harp_11930(2200) — tpf>1912 trips INT_MAX.
+  # Largest kept: harp_nov2025 tpf=1848, harp_may2024 tpf=1568.
+  cube_allowlist: [harp_8, harp_156, harp_43, harp_318, harp_49, harp_54,
+                   harp_may2024, harp_51, harp_45, harp_83,
+                   harp_316, harp_17, harp_221, harp_219,
+                   harp_116, harp_274, harp_26, harp_nov2025]
+
+model:
+  input_adapter:
+    in_ch: 1
+    out_ch: 13
+    patch_size: 16
+    pad_mode: constant
+    valid_mask_routing: separate
+  encoder:
+    dim: 192        # half of thesis_3d (384); d_head=64 preserved
+    layers: 6       # half of thesis_3d (12)
+    heads: 3
+    mlp_ratio: 4
+  predictor:
+    layers: 4       # reduced from 6
+    hidden: 192
+    heads: 3
+    mlp_ratio: 4
+    dropout: 0.0
+    drop_path: 0.1
+    block_causal: true
+    rope3d_units: physical
+    cross_attn: true
+  pixel_decoder:
+    enabled: false
+  patch_size: 16
+  masking:
+    enabled: true
+    policy_mix: {tube: 0.34, future: 0.33, cross_time: 0.33}
+    tube_short_area: 0.15
+    tube_long_area: 0.40
+    future_pct: 0.30
+    cross_time_pct: 0.30
+    target_ratio: 0.75
+    val_policy: tail
+    valid_token_threshold: 0.5
+    seed: 0
+    curriculum:
+      tail_only_pct: 0.25
+      warmup_pct: 0.40
+
+loss:
+  primary: smooth_l1_embedding
+  pixel_aux_weight: 0.0
+
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.04
+  lr: 3.0e-4
+  schedule: cosine_warmup
+  warmup_pct: 0.10
+  min_lr_ratio: 0.01
+  epochs: 80
+  max_steps_per_epoch: 1000
+  batch_size: 1
+  grad_accum_steps: 4
+  grad_clip: 1.0
+  precision: bf16
+  target_ema_decay: 0.990
+  grad_checkpoint: true
+  compile: "off"
+  curriculum:
+    one_step_pct: 0.30
+    half_step_pct: 0.30
+    full_step_pct: 0.40
+
+logging:
+  out_dir: outputs_v5_e31_lowdim_long/
+  log_every: 10
+  val_every_epoch: 1
+  save_every_epoch: 1
+
+device:
+  prefer: mps

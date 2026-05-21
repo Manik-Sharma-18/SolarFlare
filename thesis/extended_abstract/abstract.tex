@@ -1,0 +1,90 @@
+% Extended Abstract — bound separately per IIT BHU guidelines App. A.
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\begin{center}
+{\Large \bfseries Joint-Embedding Predictive Pretraining for Solar
+Magnetic Winding-Flux Cubes}\\[0.8em]
+{\itshape Toward Foundation-Model Pretraining for Solar Flare
+Forecasting}\\[1.2em]
+
+\includegraphics[width=0.18\linewidth]{../assets/iitbhu_logo.png}\\[0.8em]
+
+{\bfseries Manik Sharma}\\
+Roll No.\ 21174015\\[0.4em]
+Integrated Dual Degree, B.Tech.\ + M.Tech.\\
+Department of Physics\\
+Indian Institute of Technology (Banaras Hindu University), Varanasi\\[1.2em]
+
+\textit{Supervisor:}\\
+\vspace{1.0em}
+\rule{6cm}{0.4pt}\\
+\textit{signature}
+\end{center}
+
+\vspace{0.6cm}
+
+\section*{Abstract}
+
+This thesis develops a self-supervised pretraining pipeline for
+solar flare forecasting based on the joint-embedding predictive
+architecture (JEPA) family, in particular the \emph{V-JEPA-2-AC}
+template of Assran~et~al.\ (2024). The training corpus comprises twenty-one active-
+region cubes of magnetic winding flux at twelve-minute cadence,
+two orders of magnitude smaller than the smallest comparable
+video self-supervised regime. The model uses a ViT-Small context
+encoder with two-dimensional rotary positional embeddings in
+megametre units, an exponential-moving-average target encoder,
+and a six-layer block-causal predictor; training is performed by
+smooth-$L_{1}$ regression in the embedding space, restricted by
+construction to the intersection of masked, data-valid, and
+pad-valid tokens.
+
+Four ablation families fix the operating point. The mask-policy
+ablation establishes that a uniform mixture over the five
+mask families (short tube, long tube, future block, cross-time,
+tail) yields a sanity-scale floor of $0.00530$ smooth-$L_{1}$,
+$3.4 \times$ better than a tube-only variant and $1.6 \times$
+better than the previous tube-heavy default. The EMA-decay sweep
+identifies $\tau = 0.990$ as the winner over the tested range
+$\{0.990, 0.994, 0.998, 0.9995\}$, with a monotone response in
+which a smaller $\tau$ yields lower validation loss. The mask-ratio sweep identifies $r = 0.75$ as
+the winner over $\{0.60, 0.75, 0.85, 0.90\}$, with a concave
+response curve. A thesis-scale run on thirteen training cubes for one hundred
+epochs of two thousand steps fixes the final operating point at
+a $5.8 \times$ throughput improvement over the earlier
+sanity-scale configuration.
+
+A frozen-feature winding-flux probe attached to the encoder
+regresses the spatial-mean winding-flux curve $\langle W \rangle(t)$,
+the literature-supported flare precursor of
+Raphaldini~et~al.\ (2022). On the encoder-validation cubes the
+multilayer-perceptron probe reaches $R^{2} = 0.73$, Pearson
+$r = 0.87$, and median absolute percentage error (medAPE) $7.3\%$.
+On five novel held-out active regions, the per-cube Pearson
+correlation is $0.7$--$0.9$ and a per-cube two-parameter log-affine
+recalibration (one $(a, b)$ pair fitted on a single window per
+cube) recovers a median medAPE of $9.9\%$, beating the lag-one
+persistence baseline on four of the five novel cubes. A secondary
+frozen-feature flare classifier delivers AUC~$=1.000$ and
+TSS~$=1.000$ on harp\_49 at the C-class-or-higher / twelve-hour /
+MLP configuration, exceeding the persistence floor of $0.975$ on
+the densest mixed-label evaluation cube.
+
+The four explicit gaps separating the present pretraining result
+from an operational flare forecaster --- corpus scale, downstream
+head, persistence-anchored skill metrics, and multimodal SHARP
+fusion --- are documented as future work.
+
+\vspace{0.6em}
+\noindent\textbf{Keywords:}\quad joint-embedding predictive
+architecture; self-supervised pretraining; solar flare
+forecasting; magnetic winding flux; vision transformer; SDO/HMI;
+active regions.
+
+\end{document}

@@ -59,7 +59,11 @@ class FlareFrameDataset(Dataset):
     """
 
     def __init__(self, harps: list[str], data_dir: str | Path, feat_tag: str,
-                 cls: str, window_hr: int) -> None:
+                 cls: str, window_hr: int,
+                 temporal_split: tuple[str, float] | None = None) -> None:
+        """temporal_split: ('train', frac) keeps first frac of valid frames per cube;
+        ('eval', frac) keeps trailing (1-frac). Cuts on per-cube valid-frame ordering,
+        so train/eval are disjoint in time within each cube."""
         super().__init__()
         self.harps = list(harps)
         self.data_dir = Path(data_dir)
@@ -81,7 +85,14 @@ class FlareFrameDataset(Dataset):
             f = f[:T]; lab = lab[:T]; v_feat = v_feat[:T]
             keep = v_feat & np.all(np.isfinite(f), axis=1)
             feats.append(f); labels.append(lab); valids.append(keep)
-            for t in np.where(keep)[0]:
+            valid_ts = np.where(keep)[0]
+            if temporal_split is not None:
+                mode, frac = temporal_split
+                cut = int(round(frac * valid_ts.size))
+                ts_sel = valid_ts[:cut] if mode == "train" else valid_ts[cut:]
+            else:
+                ts_sel = valid_ts
+            for t in ts_sel:
                 rows.append((ci, int(t)))
 
         self._feats = feats

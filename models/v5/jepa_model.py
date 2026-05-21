@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .cross_attn_predictor import CrossAttnPredictor
 from .input_adapter import InputAdapter, valid_pixel_to_token_mask
 from .predictor import BlockCausalPredictor
 from .vit_encoder import ViTEncoder
@@ -42,6 +43,7 @@ class JEPAConfig:
     target_ema_decay: float = 0.996
     grad_checkpoint: bool = False
     valid_token_threshold: float = 0.5
+    predictor_cross_attn: bool = False
 
 
 class V5JEPAModel(nn.Module):
@@ -59,7 +61,8 @@ class V5JEPAModel(nn.Module):
         for p in self.target_encoder.parameters():
             p.requires_grad_(False)
         self.target_encoder.eval()
-        self.predictor = BlockCausalPredictor(
+        PredictorCls = CrossAttnPredictor if cfg.predictor_cross_attn else BlockCausalPredictor
+        self.predictor = PredictorCls(
             hidden=cfg.predictor_hidden, layers=cfg.predictor_layers,
             heads=cfg.predictor_heads, mlp_ratio=cfg.predictor_mlp_ratio,
             dropout=cfg.dropout, drop_path=cfg.drop_path,
@@ -153,13 +156,34 @@ class V5JEPAModel(nn.Module):
 
         b, _, _, _, d = z_target.shape
         tpf = hp * wp
-        z_out = self.predictor(
-            z_ctx.reshape(b, T * tpf, d), t_total=T, hp=hp, wp=wp, patch=cfg.patch_size,
+        pred_kw: dict = dict(
+            t_total=T, hp=hp, wp=wp, patch=cfg.patch_size,
             cadence_min=cfg.cadence_min, pixel_scale_mm=cfg.pixel_scale_mm,
             token_pad_mask=token_pad_mask,
         )
+        if isinstance(self.predictor, CrossAttnPredictor):
+            pred_kw["ctx_mask"] = ~mask[0].reshape(T * tpf)  # B=1; True=context
+        z_out = self.predictor(z_ctx.reshape(b, T * tpf, d), **pred_kw)
+        if z_out.shape[1] != T * tpf:
+            raise RuntimeError(
+                f"predictor out n={z_out.shape[1]} != T*tpf={T*tpf} "
+                f"(T={T} tpf={tpf} hp={hp} wp={wp} x.shape={tuple(x.shape)} "
+                f"z_ctx.shape={tuple(z_ctx.shape)} z_target.shape={tuple(z_target.shape)} "
+                f"mask.shape={tuple(mask.shape)})"
+            )
         z_pred = z_out.reshape(b, T, tpf, d)
+        if z_target.shape[1] != T or z_target.shape[2] * z_target.shape[3] != tpf:
+            raise RuntimeError(
+                f"z_target grid mismatch: z_target.shape={tuple(z_target.shape)} "
+                f"vs T={T} tpf={tpf} (hp={hp} wp={wp}) "
+                f"x.shape={tuple(x.shape)} mask.shape={tuple(mask.shape)} "
+                f"x_adapt.shape={tuple(x_adapt.shape)} Hp_pad={Hp_pad} Wp_pad={Wp_pad}"
+            )
         z_target = z_target.reshape(b, T, tpf, d).detach()
+        if z_pred.shape != z_target.shape:
+            raise RuntimeError(
+                f"shape mismatch pred={tuple(z_pred.shape)} target={tuple(z_target.shape)}"
+            )
 
         valid_tok = valid_pixel_to_token_mask(
             valid_mask, hp, wp, Hp_pad, Wp_pad, cfg.patch_size,

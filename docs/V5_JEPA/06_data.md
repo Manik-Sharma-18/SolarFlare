@@ -88,7 +88,7 @@ Winding flux is chiral pseudoscalar. Sign carries handedness. Augmentations that
 
 - **Full V5 augmentation set: 8× expansion** — 4 rotations × {flip, no-flip}, each with sign-corrected if needed. Symmetry group = D4 (dihedral, with chirality-aware action).
 - Sanity check: applying augmentation should leave loss-on-augmented-pair invariant if encoder is equivariant. If not, add equivariance regularizer or restrict to identity + 180° rotation only.
-- Mask augmentation = part of SSL pretext (§5 in `03_masks_and_pathak.md`), not data preprocessing.
+- Mask augmentation = part of SSL pretext (see [`concepts/mask_strategies.md`](concepts/mask_strategies.md)), not data preprocessing.
 
 ## 11.5 Loader specification (deferred — placeholder)
 

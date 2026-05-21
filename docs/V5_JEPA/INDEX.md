@@ -30,6 +30,11 @@ Date: 2026-05-19. Branch: `v5-jepa-lora`.
 | **Stage-2 wind probe** (linear/MLP) | on E30 v2 features | val R²=**0.700/0.729** r=**0.84/0.87**; novel R²=**+0.17/+0.23** r=**0.43/0.50** | — | E30-probe | encoder generalises to unseen ARs (E11 novel was random) |
 | **+ per-cube affine cal** (linear) | leading 30% / eval 70% | **median medAPE 9.6%** across 8 cubes; 4/5 novel <17% | — | E30-probe-cal | **F9 CONFIRMED** — scale mismatch, not capacity. harp_245 outlier (linear cal explodes). |
 | **+ log-space cal** (linear probe) | log(y)=a·log(pred)+b | **median medAPE 9.9%; mean 13%** (was 52%); 7/8 cubes improve; harp_245 R² −0.15→+0.45 | — | E30-probe-cal | log-cal robust to heavy-tail novel cubes. 4/5 novel still beat persistence. |
+| Flare M+/24h cross-cube linear | `flare_e30.yaml` | novel agg AUC **0.443** | — | flare-cross | NEGATIVE — AR identity, not physics |
+| Flare M+/24h within-cube linear | `main_flare_temporal.py` | harp_49 AUC **0.252** vs persist TSS **0.973** | — | flare-temporal | NEGATIVE — head loses to lag-1 (M+ too sparse: 1 informative cube) |
+| **Flare C+/12h within-cube MLP** | `flare_e30_C_12h.yaml` MLP | **harp_49 AUC 1.000, TSS 1.000** vs persist **0.975** | — | C12h-mlp | **POSITIVE — head BEATS persistence on harp_49.** Agg AUC 0.822, TSS 0.724 (8 informative cubes). See [`10b_flare_prediction_gap.md`](10b_flare_prediction_gap.md) |
+| Flare C+/12h within-cube linear | `flare_e30_C_12h.yaml` linear | harp_49 AUC 0.716, harp_54 AUC 0.951 | — | C12h-lin | agg AUC 0.877, TSS 0.642. linear < MLP on harp_49 |
+| Flare C+/6h within-cube (linear/MLP) | `flare_e30_C_6h.yaml` | harp_54 lin AUC **0.993**; harp_49 MLP AUC 0.898 | — | C6h | agg AUC 0.866/0.872 — no cube beats persist; 12h-window helps decorrelate labels |
 
 Full run log: [`12_experiments.md`](12_experiments.md). Hard truths: [`12_experiments_findings.md`](12_experiments_findings.md). Archive: [`12_experiments_archive.md`](12_experiments_archive.md).
 

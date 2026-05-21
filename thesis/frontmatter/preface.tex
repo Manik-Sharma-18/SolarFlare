@@ -1,0 +1,57 @@
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+
+\vspace{0.8cm}
+
+This thesis investigates self-supervised pretraining of a deep neural encoder
+on solar magnetic winding-flux cubes derived from Solar Dynamics Observatory
+(SDO) Helioseismic and Magnetic Imager (HMI) observations of active regions.
+The work was carried out in the Department of Physics, Indian Institute of
+Technology (Banaras Hindu University), Varanasi, between August~2025 and
+May~2026, as part of the Integrated Dual Degree (B.Tech.\ + M.Tech.) programme
+in Engineering Physics.
+
+\noindent\textbf{Subject.}\quad
+The subject is the design and empirical validation of a Joint-Embedding
+Predictive Architecture (JEPA), trained from scratch on a corpus of
+twenty-one magnetic-winding-flux datacubes at 12-minute cadence, with the
+ultimate goal of providing a reusable pretrained encoder for downstream solar
+flare forecasting.
+
+\noindent\textbf{Scope.}\quad
+The scope is confined to pretraining and to a downstream linear winding-flux
+regression probe. Full flare event forecasting on the Geostationary
+Operational Environmental Satellite (GOES) X-ray catalog is identified as a
+necessary follow-up but is deliberately left outside the scope of the present
+thesis. Path~A, an earlier plan based on parameter-efficient fine-tuning
+(LoRA) of the publicly released Surya foundation model, was abandoned on
+account of an architectural incompatibility with the variable spatial extent
+and 12-minute cadence of the available active-region cubes; only the
+methodological lessons learned from that effort are carried forward.
+
+\noindent\textbf{Aims.}\quad
+Three concrete aims drive the work: (i) to demonstrate that the V-JEPA-2-AC
+template can be reproduced at small scale on a single-channel, signed
+pseudoscalar field; (ii) to characterise the sensitivity of the pretraining
+objective to mask policy, mask ratio and EMA decay; and (iii) to bound the
+quality of the resulting encoder by a parameter-light downstream probe on a
+held-out active region.
+
+\noindent\textbf{Philosophy of approach.}\quad
+The empirical methodology favours small, controlled ablations over
+single-shot large runs. Every claim about an architectural or hyperparameter
+choice is supported by at least one controlled comparison in which only the
+variable of interest changes. Negative and abandoned results are reported
+alongside successful ones, in order to keep the chain of reasoning auditable.
+All measurements are reported in SI units; all narrative is in the third
+person, in accordance with the Institute's thesis guidelines.
+
+\noindent The thesis is organised in seven chapters, four appendices, and an
+extended abstract that is bound separately as required by the Institute's
+thesis format.
+
+\vspace{2cm}
+
+\noindent
+\hfill \theauthorname\\
+\hfill May 2026, Varanasi

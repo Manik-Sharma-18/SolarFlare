@@ -1,0 +1,68 @@
+# E23 — Ablation B: mask target_ratio=0.85. MPS Mac Mini.
+# Anchor: E09 (ratio=0.80). Higher mask → harder reconstruction.
+# Prediction: val slightly higher (harder task); probe should improve if features generalize.
+
+data:
+  zarr_dir: data/
+  manifest_path: data/manifest.json
+  t_in: 4
+  t_out: 2
+  pixel_scale_mm: 0.364
+  cadence_min: 12
+  norm: zscore_per_cube
+  augment: d4_chiral
+  splits: by_harp_id
+  val_fraction: 0.34
+  split_seed: 0
+  num_workers: 0
+  cube_allowlist: [harp_17, harp_83, harp_45, harp_51]
+
+model:
+  input_adapter: {in_ch: 1, out_ch: 13, patch_size: 16, pad_mode: constant, valid_mask_routing: separate}
+  encoder:   {dim: 192, layers: 4, heads: 4, mlp_ratio: 4}
+  predictor: {layers: 3, hidden: 192, heads: 4, mlp_ratio: 4, dropout: 0.0, drop_path: 0.0, block_causal: true, rope3d_units: physical}
+  pixel_decoder: {enabled: false}
+  patch_size: 16
+  masking:
+    enabled: true
+    policy_mix: {tube: 0.5, future: 0.3, cross_time: 0.2}
+    tube_short_area: 0.15
+    tube_long_area: 0.40
+    future_pct: 0.30
+    cross_time_pct: 0.30
+    target_ratio: 0.85
+    val_policy: tail
+    valid_token_threshold: 0.5
+    seed: 0
+    curriculum: {tail_only_pct: 0.25, warmup_pct: 0.40}
+
+loss:
+  primary: smooth_l1_embedding
+  pixel_aux_weight: 0.0
+
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.04
+  lr: 3.0e-4
+  schedule: cosine_warmup
+  warmup_pct: 0.10
+  min_lr_ratio: 0.01
+  epochs: 100
+  batch_size: 1
+  grad_accum_steps: 4
+  grad_clip: 1.0
+  precision: bf16
+  target_ema_decay: 0.996
+  grad_checkpoint: false
+  compile: "off"
+  curriculum: {one_step_pct: 0.50, half_step_pct: 0.25, full_step_pct: 0.25}
+
+logging:
+  out_dir: outputs_v5_e23_ratio_085/
+  log_every: 20
+  val_every_epoch: 1
+  save_every_epoch: 1
+
+device:
+  prefer: mps

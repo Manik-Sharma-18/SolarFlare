@@ -27,7 +27,7 @@ from training.jepa_trainer import (
     train_one_epoch,
     validate,
 )
-from utils.device import resolve_device
+from utils.device import clear_device_cache, resolve_device
 from utils.run_logger import log_jsonl, log_meta
 
 
@@ -52,10 +52,26 @@ def split_cubes_by_harp(
     val_frac: float,
     seed: int,
     allowlist: list[str] | None = None,
+    train_cubes: list[str] | None = None,
+    val_cubes: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Cube-level holdout — each harp_id lands fully in train or val (no AR leakage)."""
+    """Cube-level holdout — each harp_id lands fully in train or val (no AR leakage).
+
+    If train_cubes and val_cubes both supplied, use them verbatim (skip random split).
+    Validates IDs exist in manifest and are disjoint.
+    """
     entries = json.loads(Path(manifest_path).read_text())["cubes"]
-    ids = sorted(e["harp_id"] for e in entries)
+    all_ids = {e["harp_id"] for e in entries}
+    if train_cubes is not None and val_cubes is not None:
+        t = set(train_cubes); v = set(val_cubes)
+        missing = (t | v) - all_ids
+        if missing:
+            raise ValueError(f"Explicit split refs unknown cubes: {sorted(missing)}")
+        overlap = t & v
+        if overlap:
+            raise ValueError(f"train/val overlap: {sorted(overlap)}")
+        return sorted(t), sorted(v)
+    ids = sorted(all_ids)
     if allowlist is not None:
         keep = set(allowlist)
         ids = [i for i in ids if i in keep]
@@ -74,7 +90,14 @@ def build_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
     val_frac = float(cfg["data"].get("val_fraction", 0.2))
     seed = int(cfg["data"].get("split_seed", 0))
     allowlist = cfg["data"].get("cube_allowlist")
-    train_ids, val_ids = split_cubes_by_harp(manifest, val_frac, seed, allowlist=allowlist)
+    train_cubes = cfg["data"].get("train_cubes")
+    val_cubes = cfg["data"].get("val_cubes")
+    train_ids, val_ids = split_cubes_by_harp(
+        manifest, val_frac, seed,
+        allowlist=allowlist,
+        train_cubes=train_cubes,
+        val_cubes=val_cubes,
+    )
     print(f"[info] cube split — train={train_ids} val={val_ids}")
 
     train_ds = ZarrCubeDataset(
@@ -125,6 +148,7 @@ def build_model(cfg: dict) -> V5JEPAModel:
         valid_token_threshold=float(
             cfg["model"].get("masking", {}).get("valid_token_threshold", 0.5)
         ),
+        predictor_cross_attn=bool(pred.get("cross_attn", False)),
     )
     return V5JEPAModel(cfg=j)
 
@@ -157,7 +181,9 @@ def main() -> int:
 
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device)
-        model.load_state_dict(ckpt["model_state_dict"])
+        sd = ckpt["model_state_dict"]
+        sd = {k.replace("._orig_mod.", "."): v for k, v in sd.items()}
+        model.load_state_dict(sd)
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         state.epoch = int(ckpt["epoch"]) + 1
         state.global_step = int(ckpt["global_step"])
@@ -173,16 +199,17 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     run_log = out_dir / "run.jsonl"
     log_meta(run_log, event="run_start", config_path=args.config, device=str(device),
-             params_trainable=int(n_train), params_total=int(n_total),
-             epochs=epochs, steps_per_epoch=steps_per_epoch, total_steps=total_steps,
-             config=cfg)
+             params_trainable=int(n_train), params_total=int(n_total), epochs=epochs,
+             steps_per_epoch=steps_per_epoch, total_steps=total_steps, config=cfg)
     train_fn = log_jsonl(run_log, "train")(train_one_epoch)
     val_fn = log_jsonl(run_log, "val")(validate)
 
     for epoch in range(state.epoch, epochs):
         state.epoch = epoch
         tr = train_fn(model, train_loader, optimizer, cfg, state, device, total_steps)
+        clear_device_cache(device)
         vr = val_fn(model, val_loader, device, cfg)
+        clear_device_cache(device)
         print(f"[epoch {epoch}] train_loss={tr['loss']:.4f} val_loss={vr['loss']:.4f}")
         if vr["loss"] < state.best_val:
             state.best_val = vr["loss"]

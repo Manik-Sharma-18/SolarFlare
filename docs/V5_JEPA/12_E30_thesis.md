@@ -112,3 +112,26 @@ Fit y = a·ŷ + b on leading 30% of each cube, eval remaining 70%. Tests F9 (sca
 **vs persistence on novel cubes (log-cal):** 4/5 wins — harp_17 13.3 vs 27.9, harp_51 11.8 vs 22.6, harp_may2024 4.6 vs 10.0, harp_nov2025 8.0 vs 10.7. harp_245 loses (38.7 vs 5.5) — structurally harder, AR with sparse spikes + flat tail.
 
 - Diagnostic: `scripts/diagnose_harp245.py` + `scripts/test_log_calibration.py`. Eval: `outputs_probe/E30_eval/probe_calibration.md`.
+
+## Stage-2 flare binary head on E30 (2026-05-19) — **MIXED, see `10b_flare_prediction_gap.md`**
+
+Frozen E30 features → BCE+pos_weight head. Two sweeps: M+/24h (linear) and C+/{6h,12h}×{linear,MLP} on MPS.
+
+**M+/24h — NEGATIVE.**
+- Cross-cube novel-agg AUC **0.443** (worse than chance — AR identity).
+- Within-cube temporal: only 1 informative eval-half cube (harp_49, n=174, 120 pos). Head AUC **0.252** vs persist TSS **0.973**. Lag-1 wins.
+
+**C+/{6h,12h}×{linear,MLP} — POSITIVE on harp_49.** Denser class (8 mixed-label eval cubes); 12h window decorrelates labels from persistence.
+
+| Config | Agg AUC / TSS | harp_49 AUC / TSS (persist) | harp_54 AUC / TSS (persist) |
+|---|---|---|---|
+| C+/6h linear | 0.866 / 0.652 | 0.868 / 0.710 (0.960) | **0.993** / 0.937 (0.957) |
+| C+/6h MLP | 0.872 / 0.702 | 0.898 / 0.732 (0.960) | 0.671 / 0.323 (0.957) |
+| C+/12h linear | 0.877 / 0.642 | 0.716 / 0.632 (0.975) | 0.951 / 0.893 (0.990) |
+| **C+/12h MLP** | 0.822 / **0.724** | **1.000 / 1.000** (0.975) | 0.425 / 0.232 (0.990) |
+
+harp_49 C+/12h MLP TPR=1.000 FPR=0.000 at thr=0.355 — **first config beating persistence** on an informative cube. MLP hurts harp_54 (over-capacity on different cube structure); no head dominates across cubes.
+
+**Verdict.** Wind-flux regression transfers (above). Flare classification: M+/24h fails (lag-1 floor too high, 1 informative cube); C+/12h MLP delivers a genuine positive on harp_49. Per-cube head/window selection is required — frozen E30 features carry flare-relevant structure exploitable by nonlinear heads given enough window mass.
+
+Artifacts: `outputs_flare/E30_M_24h_linear/`, `outputs_flare/E30_M_24h_temporal_linear/`, `outputs_flare/E30_C_{6h,12h}_temporal_{linear,mlp}/`.

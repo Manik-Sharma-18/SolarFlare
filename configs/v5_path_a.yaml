@@ -80,7 +80,7 @@ training:
   precision: bf16
   target_ema_decay: 0.996
   grad_checkpoint: true
-  compile: default            # off | default | reduce-overhead | max-autotune (CUDA only)
+  compile: "off"              # off | default | reduce-overhead | max-autotune (CUDA only) — disabled after E08 OOM in SDPA backward at ep7
   curriculum:
     one_step_pct: 0.30
     half_step_pct: 0.30

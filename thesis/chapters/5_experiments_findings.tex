@@ -1,0 +1,34 @@
+\section{Findings synthesis}
+\label{sec:exp-findings}
+
+Table~\ref{tab:findings} summarises the load-bearing findings that
+condition the present work. Full statements and evidence are
+recorded in the project log under the same labels.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.08\linewidth}p{0.78\linewidth}p{0.10\linewidth}}
+\toprule
+ID & Statement & Tag \\
+\midrule
+F1  & Slow curriculum ($0.25/0.40$) is the default; $8\times$ better than fast at sanity scale. & CONFIRMED \\
+F2  & $|W| \leq 10^{8}$ guard preserves the legitimate $10^{5}$--$10^{7}$ peaks; $10^{5}$ guard destroys signal. & CONFIRMED \\
+F3  & Tube-only masking diverges past curriculum transition on the single seed observed; future and cross-time are interpreted as load-bearing regularisers. & HYPOTHESIS \\
+F4  & Mask-OFF saturates at sanity scale near epoch~24; informative only as early baseline. & CONFIRMED \\
+F5  & Mask-ON and mask-OFF losses are not directly comparable (different denominators). & CONFIRMED \\
+F6  & MPS \texttt{SDPA} returns NaN under \texttt{no\_grad} with \texttt{attn\_mask}; manual path required. & CONFIRMED \\
+F7  & Fast curriculum induces an 18-epoch plateau; superseded by F1. & CONFIRMED \\
+F8  & Sanity floor at uniform mix is val~$0.00530$ (E15). & CONFIRMED \\
+F9  & Frozen E30~v2 features carry phase, temporal, and (post per-cube log-affine fit) absolute-scale structure on novel cubes; four of five novel cubes beat lag-one persistence after one $(a, b)$ fit. & CONFIRMED \\
+F10 & Path~A (LoRA on Surya) abandoned: architectural lock on $4096 / 60$-min $/ 13$-channel inputs. & CONFIRMED \\
+F11 & Uniform mask mixture dominates every tube-heavy variant tested. & CONFIRMED \\
+F12 & Cross-attention predictor must drop causal masking in the masked pretext path. & CONFIRMED \\
+F13 & C$+$/12~h MLP head beats lag-one persistence on harp\_49 (AUC $= 1.000$ vs $0.975$); does not transfer uniformly across the eight mixed-label evaluation cubes. & CONFIRMED \\
+\bottomrule
+\end{tabular}
+\caption{Findings carried forward into the downstream probe of
+Chapter~\ref{ch:probe} and the future work of
+Chapter~\ref{ch:summary}.}
+\label{tab:findings}
+\end{table}

@@ -8,6 +8,7 @@
 v5_path_a: 6000
 v5_thesis: 6000
 v5_thesis_3d: 6000
+v5_thesis_curated: 6000
 
 # Sanity / mini — dim=192, 4-layer encoder, 3-layer predictor.
 v5_sanity: 1500

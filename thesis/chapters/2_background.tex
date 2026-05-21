@@ -1,0 +1,200 @@
+\chapter{Background and Related Work}
+\label{ch:background}
+
+This chapter reviews three lines of literature on which the present
+work rests: the physics of magnetic winding flux as a flare
+precursor (\S\ref{sec:bg-winding}), the self-supervised learning
+regime for spatiotemporal data (\S\ref{sec:bg-ssl}), and the
+joint-embedding predictive doctrine
+(\S\ref{sec:bg-jepa}). It closes with a brief survey of solar
+foundation models (\S\ref{sec:bg-surya}) and an explicit
+justification of the design choice between joint-embedding and
+adversarial inpainting (\S\ref{sec:bg-vs-pathak}).
+
+\section{Magnetic winding flux as a flare precursor}
+\label{sec:bg-winding}
+
+The pre-flare configuration of an active region is most directly
+observed through its photospheric magnetic field. Two scalar
+summaries of that field have received concentrated attention in the
+forecasting literature: the unsigned magnetic flux $\Phi = \int
+|B_{r}| \, \mathrm{d}A$, and the family of helicity-like topological
+invariants that quantify the chirality and entanglement of the field.
+
+Magnetic winding flux, introduced as a forecasting target by Prior
+and MacTaggart~\cite{prior2020helicity}, is the second of these.
+Unlike the unsigned flux $\Phi$ or the magnetic-helicity flux, the
+winding flux is mathematically independent of field strength: it
+measures the rate at which topologically twisted flux tubes thread
+the photosphere, with a sign that records chirality. Two active
+regions with identical~$\Phi$ but opposite handedness yield winding
+fluxes of opposite sign.
+
+The forecast relevance of winding flux is established by
+Raphaldini~et~al.~\cite{raphaldini2022winding}, who report that
+sharp positive inputs of winding flux precede individual flaring
+events in AR~11318 by six to seven hours.
+Kutsenko~et~al.~\cite{kutsenko2021flare} extend the picture by
+linking emergence rate, rather than absolute magnitude, to flare
+productivity. Taken together, the literature supports a precursor
+mechanism that magnetograms alone do not resolve: rapid input of
+\emph{current-carrying} winding marks the photospheric emergence of
+topologically twisted flux, and this emergence event precedes the
+flare by hours.
+
+The data used in the present work expose the winding flux as a
+per-pixel signed pseudoscalar field $W(x, y, t)$ on the
+photospheric cutout~$S$, sampled at twelve-minute cadence. The
+spatial-mean curve is defined
+\begin{equation}
+\label{eq:spatial-mean-winding}
+\langle W \rangle (t) \;=\;
+\frac{1}{|S_{\text{valid}}|}
+\int_{S_{\text{valid}}} W(x, y, t) \, \mathrm{d}A,
+\end{equation}
+restricted to the valid-pixel subset
+$S_{\text{valid}} = \{(x, y) : |W(x, y, t)| \le 10^{8}\}$ defined by
+the audit of Section~\ref{sec:data-clip}. The bound preserves the
+legitimate per-pixel range $10^{5}$--$10^{7}$ established by the
+upstream pipeline and excludes the sparse-random numerical glitches
+of the source data without discarding real extrema. The
+spatial-mean winding-flux curve $\langle W \rangle(t)$ is the
+minimum sufficient statistic for the precursor signal observed by
+the works cited above; the Stage-1 probe of
+Chapter~\ref{ch:probe} targets this curve directly.
+
+\paragraph{Persistence baseline.} The trivial forecaster used as the
+lower-bar comparison in Chapter~\ref{ch:probe} is the lag-one
+predictor $\hat{y}_{t} = y_{t-1}$. For the wind-flux regression at
+twelve-minute cadence, the lag-one predictor exploits the strong
+local autocorrelation of $\langle W \rangle(t)$ and is the trivial
+floor that any non-trivial probe must beat on a per-cube basis. For
+binary flare classification under a $k$-hour forward window, the
+analogous baseline is the label-persistence predictor
+$\hat{y}_{t} = y_{t-1}$ on the binarised event sequence; under
+dense labels this baseline is hard to beat by construction and is
+the principal source of optimistic-looking aggregate metrics in
+the cross-cube setting.
+
+\section{Self-supervised learning for spatiotemporal data}
+\label{sec:bg-ssl}
+
+The dominant self-supervised learning paradigm for image and video
+data in the present decade is masked-token pretraining. Three
+landmarks define the regime.
+
+The masked autoencoder of He~et~al.~\cite{he2022mae} introduces a
+high-mask-ratio (typically 75\%) reconstruction objective in pixel
+space for static images, with a small decoder and a large encoder.
+The asymmetric encoder--decoder split is the load-bearing design
+decision: the encoder processes only visible tokens, and the
+decoder is a thin reconstruction head discarded after pretraining.
+
+VideoMAE~\cite{tong2022videomae} extends the masked-autoencoder
+paradigm to video by introducing tube-shaped masks that occlude a
+patch across all frames simultaneously. The tube mask defeats the
+temporal-redundancy shortcut and forces the encoder to learn motion
+representations rather than per-frame identity.
+VideoMAEv2~\cite{wang2023videomaev2} and
+MaskViT~\cite{gupta2022maskvit} subsequently scale the family.
+W-MAE~\cite{wmae2023} adapts the regime to atmospheric data.
+
+ClimaX~\cite{nguyen2023climax}, Aurora~\cite{bodnar2024aurora},
+Prithvi-WxC~\cite{schmude2024prithviwxc}, and the
+SDO-FM family~\cite{sdofm2024} demonstrate that masked-token
+pretraining transfers usefully to physical fields outside the
+natural-image domain. The corpus sizes involved
+($\mathcal{O}(10^{3})$ to $\mathcal{O}(10^{6})$ samples) define the
+regime against which the present work's twenty-one cubes must be
+read.
+
+\section{Joint-embedding predictive architectures}
+\label{sec:bg-jepa}
+
+The joint-embedding predictive architecture (JEPA) framework,
+articulated by LeCun~\cite{lecun2022path}, replaces the
+pixel-space reconstruction objective of the masked-autoencoder
+family with prediction in the embedding space of a second encoder.
+Two encoders are maintained: a context encoder that consumes a
+masked view, and a target encoder updated by exponential moving
+average of the context encoder's parameters. A small predictor maps
+context embeddings to target embeddings; smooth-$L_{1}$ or
+$L_{2}$ in the embedding space is the only training signal. No
+contrastive negatives are required; representational collapse is
+prevented by the asymmetry between the two streams.
+
+The image-JEPA variant (I-JEPA) of
+Assran~et~al.~\cite{assran2023ijepa} establishes the paradigm at
+scale on ImageNet; the V-JEPA family~\cite{assran2024vjepa,
+vjepa2_2025,vjepa21_2026} extends it to video. V-JEPA-2-AC, the
+action-conditioned variant of V-JEPA-2, adds a block-causal
+predictor and is the architectural template adapted in
+Chapter~\ref{ch:architecture}.
+
+The MC-JEPA variant of Bardes~et~al.~\cite{bardes2023mcjepa}
+demonstrates that the JEPA encoder is compatible with multiple
+downstream heads sharing a single frozen backbone; this property
+is used implicitly in Chapter~\ref{ch:probe} where the spatial-mean
+winding-flux probe attaches to the frozen encoder without
+modifying the pretraining objective. LeJEPA of
+Balestriero~et~al.~\cite{balestriero2025lejepa} establishes
+theoretical guarantees on JEPA's anti-collapse mechanism.
+
+\section{Solar foundation models}
+\label{sec:bg-surya}
+
+Two solar foundation-model lines exist at the time of writing.
+Surya, the NASA--IBM model of
+Schmude~et~al.~\cite{surya2025,suryabench2025}, pretrains by
+forecasting one frame ahead on nine years of twelve-channel SDO
+data at $4096^{2}$ spatial resolution. Surya reaches a downstream
+flare TSS of $0.436$, the strongest published pixel-only result.
+The SDO-FM family~\cite{sdofm2024} explores comparable masked-
+autoencoder objectives on the same data source. Both lines
+operate at corpus sizes three to four orders of magnitude larger
+than the present active-region collection.
+
+The Surya backbone, HelioSpectFormer, is hard-locked to
+$4096 \times 4096$ inputs at sixty-minute cadence with thirteen
+channels (see Section~\ref{sec:intro-prior}). A LoRA-based
+adaptation~\cite{hu2021lora} of Surya to active-region cubes
+of variable spatial extent, twelve-minute cadence, and a single
+channel was therefore architecturally infeasible. This
+incompatibility motivates the present from-scratch path.
+
+\section{Joint-embedding versus adversarial inpainting}
+\label{sec:bg-vs-pathak}
+
+The context-encoder family of
+Pathak~et~al.~\cite{pathak2016contextencoders}, an adversarial
+inpainting approach, was the historical precursor to the masked
+autoencoder. Two arguments motivate the choice of
+joint-embedding prediction over adversarial inpainting in the
+present work.
+
+First, the present field is a noisy pseudoscalar with a
+heavy-tailed pixel distribution (\S\ref{sec:data-clip}).
+Adversarial training in pixel space rewards visually plausible
+reconstructions even at the price of high-frequency fidelity to
+the underlying physics; a discriminator trained against such a
+field tends to lock onto the heavy-tail outliers rather than the
+load-bearing structure. The embedding-space objective discards
+high-frequency content by construction, because the predictor
+must reproduce only what the target encoder retains.
+
+Second, the V4 pixel-space forecaster trained on the same corpus
+exhibited a persistence collapse: the output decayed to the
+input frame as training progressed. The pixel-MSE forecaster
+chooses to predict the conditional mean of a noisy field, which
+is dominated over short horizons by the most recent observation;
+the discriminator does not prevent this because the persistence
+prediction is locally indistinguishable from a plausible field.
+The joint-embedding objective addresses the failure mode at its
+root, by predicting in a space the encoder has chosen.
+
+The dense-prediction decoder family
+(DPT~\cite{ranftl2021dpt}, SegFormer~\cite{xie2021segformer},
+Earthformer~\cite{earthformer2022}) is compatible with a frozen
+JEPA encoder and is the natural choice for any subsequent
+pixel-space reconstruction head; this is recorded as future work
+in Chapter~\ref{ch:summary}.

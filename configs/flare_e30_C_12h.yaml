@@ -1,0 +1,49 @@
+encoder:
+  ckpt: outputs_v5_thesis_curated/best.pt
+  feat_tag: E30
+  dim: 384
+
+label:
+  cls: C
+  window_hr: 12
+
+data:
+  manifest_path: data/manifest.json
+  data_dir: data/
+  train_cubes:
+    - harp_219
+    - harp_316
+    - harp_83
+    - harp_45
+    - harp_318
+    - harp_43
+    - harp_26
+    - harp_116
+    - harp_49
+    - harp_156
+    - harp_8
+    - harp_274
+    - harp_54
+  val_cubes:
+    - harp_221
+    - harp_11930
+    - harp_86
+
+head:
+  kind: linear
+  hidden: 256
+  dropout: 0.1
+
+training:
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 60
+  batch_size: 256
+  num_workers: 0
+
+logging:
+  out_dir: outputs_flare/E30_C_12h_temporal_linear
+
+device:
+  prefer: mps

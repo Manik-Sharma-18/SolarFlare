@@ -46,9 +46,9 @@ Architectural consequences:
 
 1. **Pathak-style adversarial inpainting is obsolete for SSL.** Modern field uses (a) high-mask-ratio MAE *without* GAN, (b) JEPA-style embedding-space prediction, or (c) **forecasting-as-pretext**. Drop the discriminator and the channel-wise FC bottleneck.
 2. **Surya (NASA-IMPACT/IBM, arXiv 2508.14112, Aug 2025)** is direct prior art for solar foundation modeling. 366 M params, 9 yr × 12-min × 13 channels SDO. **Pretrains by forecasting t+60 min from two prior frames — not by inpainting.** Achieves flare TSS 0.436 (best pixel-only solar FM published). **Weights public:** `nasa-ibm-ai4science/Surya-1.0` on HuggingFace.
-3. **14 cubes ≪ smallest validated MAE regime (~3 k videos, VideoMAE).** Pretraining a foundation encoder from scratch on 14 cubes will not produce a useful encoder. Two viable paths:
-   - **Path A — adapt Surya** (recommended): LoRA-finetune frozen Surya backbone with input adapter for our variable-AR-dim cubes. Highest leverage. Skips pretrain entirely.
-   - **Path B — pretrain from scratch on SuryaBench** (SDO 2010–2024, full solar cycle, ML-ready) then transfer to our cubes. Order-of-magnitude more compute but sovereign weights.
+3. **21 cubes ≪ smallest validated MAE regime (~3 k videos, VideoMAE).** Pretraining a foundation encoder from scratch on 21 cubes alone will not match foundation-model quality. Original options:
+   - **Path A — adapt Surya** (~~recommended~~ **ABANDONED 2026-05-08**): img_size=4096 / 60-min / 13ch hard-locked; no adapter bridges AR cubes. See `01_path_a.md` + F10.
+   - **Path B — pretrain from scratch** (**ACTIVE**): JEPA-from-scratch at small scale on our 21 cubes, validated sanity ceiling val 0.00831 (E09, F1). Pretrain on SuryaBench remains future option.
 4. **Pixel-only flare models cap around TSS 0.7.** SHARP-parameter + temporal hybrids (CNN-TCN) hit **TSS 0.85**. Moirai2 on GOES X-ray alone hits **TSS 0.74**. **A pixel-only V5 has known ceiling. If goal is operational flare forecasting, multimodal (cube + SHARP scalars) is mandatory.**
 5. **V-JEPA 2-AC** (Meta, June 2025) is the exact architectural template for V5: frozen large JEPA encoder + small block-causal predictor in embedding space + L1 loss + teacher-forcing/rollout curriculum. Designed for the regime V5 sits in: small post-training data, frozen large SSL encoder, multi-step future prediction.
 6. **V4 mode collapse to persistence is a known L1+SSIM-in-pixel-space failure.** JEPA's predictor-in-latent-space objective is the published cure. Pixel-MSE forecasters waste capacity modeling unpredictable noise; latent prediction discards nuisance variability.
@@ -68,19 +68,19 @@ Forecast next `t_out` frames of magnetic winding flux from `t_in` input frames a
 
 Optionally extend with downstream flare-event head (binary 24-h M+ classifier).
 
-Available data: 14 legacy `.npy` cubes (274+ hr, 12-min cadence) + new `.zarr` cubes incoming (sample `harp_11930` = 325 frames / 65 hr / 627×877 px). Fp32 `.zarr` is forward format.
+Available data: **21 AR `.zarr` cubes** (12-min cadence, fp32) — 19 legacy harps + 2026-05 ingest (`harp_may2024`, `harp_nov2025`). Per-cube frame counts in `06_data.md` and root `CLAUDE.md`.
 
 ---
 
-## 2. Architectural decision tree
+## 2. Architectural decision tree (historical — see 2026-05-08 update below)
 
 ```
 Is goal pixel-accurate winding-flux forecast?    → V-JEPA encoder + DPT/SegFormer pixel decoder
 Is goal flare event classification?              → V-JEPA encoder + attentive probe
 Is goal both?                                    → Shared encoder + two heads (MC-JEPA pattern)
-Compute budget < 1 k GPU-hr?                     → Path A: LoRA on frozen Surya
-Compute budget 10-100 k GPU-hr?                  → Path B: V-JEPA pretrain from scratch on SuryaBench
+Compute budget < 1 k GPU-hr?                     → Path A: LoRA on frozen Surya    [ABANDONED 2026-05-08]
+Compute budget 10-100 k GPU-hr?                  → Path B: V-JEPA pretrain from scratch
 Compute budget < 100 GPU-hr?                     → Skip pretrain entirely. SimVPv2 end-to-end as baseline.
 ```
 
-Default path: **Path A (LoRA on Surya) for V5.0**, with Path B as V5.1 if Surya transfer underperforms.
+~~Default path: **Path A**~~ **Resolved 2026-05-08:** Path A abandoned (HelioSpectFormer architectural lock — see `01_path_a.md` + F10). Active path: **V5.0 Path B — JEPA-from-scratch at small scale on 21 cubes** (E09 sanity floor val 0.00831 CONFIRMED).

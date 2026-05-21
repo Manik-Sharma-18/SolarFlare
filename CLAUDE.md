@@ -1,23 +1,14 @@
-# SolarFlare — Project Context
+# SolarFlare — Project Context (group_id: "manik")
 
-> **First read on a fresh session:** `docs/V5_JEPA/09_progress.md` is the
-> source of truth for current state. This file just bootstraps you to it.
+> **First read on a fresh session:** [`docs/V5_JEPA/INDEX.md`](docs/V5_JEPA/INDEX.md) (entry-point hub), then `09_progress.md` for narrative. This file bootstraps only.
 
-## Where we are (2026-05-11)
+## Where we are (2026-05-12)
 
 - **Active branch:** `v5-jepa-lora`. V4 stays on `Version_4` as baseline.
-- **Active architecture:** **V5.0 Path B — JEPA-from-scratch** (V-JEPA-2-AC
-  template at small scale: ViT context + EMA target + block-causal predictor,
-  ~55 M total / 33 M trainable, smooth-L1 in embedding space).
-- **Path A (LoRA on Surya) is abandoned.** HelioSpectFormer hard-locked to
-  `img_size=4096 / 60-min / 13ch`; AR cubes are variable-HxW / 12-min / 1ch.
-  Don't re-introduce `transformers` / `peft` / `huggingface_hub`.
-- **Sanity status:** All green. Full experiment log: `docs/V5_JEPA/12_experiments.md`.
-  - No-mask MPS 5-ep: val 0.0407 (1e8 clip fix, 5× over 1e5 baseline).
-  - Mask-ON MPS 50-ep: val 0.0689 ep49, not converged (18-ep curriculum plateau; fix in progress).
-  - Mask-OFF MPS 50-ep: val 0.0125 ep38, saturated ep24+ (tiny-dataset limit).
-  - path_a CUDA 5060ti (dim=384, 21 cubes): ep5 val 0.127, resuming ep6→19 (E08, running).
-  - Mask-ON MPS 100-ep slow curriculum (E09): running on mini_mps.
+- **Active architecture:** **V5.0 Path B — JEPA-from-scratch** (V-JEPA-2-AC template at small scale: ViT context + EMA target + block-causal predictor, ~55 M total / 33 M trainable, smooth-L1 in embedding space).
+- **Path A (LoRA on Surya) abandoned.** HelioSpectFormer hard-locked to `img_size=4096 / 60-min / 13ch`; AR cubes are variable-HxW / 12-min / 1ch. Don't re-introduce `transformers` / `peft` / `huggingface_hub`.
+- **Latest results** — see [`INDEX.md`](docs/V5_JEPA/INDEX.md) best-results table.
+  Headline: E09 sanity mask-ON slow curric **val 0.00831 ep98 CONFIRMED**. E12-E15 mask-policy ablation + E16 bigger-backbone arm running.
 
 ## Key entry points
 
@@ -29,7 +20,9 @@
 | `models/v5/jepa_model.py` | `V5JEPAModel` — context + EMA target + predictor. |
 | `training/jepa_trainer.py` | Single LR group; `update_target_ema()` after each step. |
 | `solarflare_data/zarr_loader.py` | Lazy zarr + `WIND_FLUX_CLIP=1e8` sentinel guard. |
-| `docs/V5_JEPA/09_progress.md` | **Always check this first.** |
+| `docs/V5_JEPA/INDEX.md` | **First read.** Hub: best results, concepts, active research, dead ends. |
+| `docs/V5_JEPA/09_progress.md` | Narrative source of truth. |
+| `docs/V5_JEPA/12_experiments.md` | Live run log + summary table. |
 
 ## Run commands
 
@@ -47,61 +40,51 @@ scripts/launch_slot.sh 5060ti_cuda main_v5.py \
 ssh 5060ti -t /usr/bin/tmux attach -t sf-<user>-5060ti_cuda-main_v5
 ```
 
-The `solarflare-training` skill (in `.claude/skills/`) documents the full
-multi-machine queue. See `SKILL.md` for slot list, audit rules, monitor
-commands.
+`solarflare-training` skill (`.claude/skills/`) documents the multi-machine queue (slot list, audit rules, monitor commands).
 
 ## Gotchas
 
-- **MPS `F.scaled_dot_product_attention` returns NaN** with `attn_mask` under
-  `torch.no_grad`. `models/v5/predictor.py` routes MPS through a manual
-  `(q@kᵀ)·scale → masked_fill → softmax → @v` path. CUDA keeps SDPA. Don't
-  unify these without testing val_loss on MPS.
-- **Quantity is winding flux, NOT magnetic field strength.** Per senior:
-  per-pixel physical max ~1e7; integrated AR total ~1e13–1e14. Earlier
-  `BZ_CLIP_GAUSS=1e5` clip was destroying real signal (10⁵–10⁷ legitimate
-  peaks). Replaced by `WIND_FLUX_CLIP=1e8` in `zarr_loader.py` (10× safety
-  margin). harp_8 still has 14k pathological pixels up to 1.68e10 = 1,680×
-  physical max. See `docs/V5_JEPA/OUTLIERS.md` for full audit.
-- **`launch_slot.sh` injects `--device <device>`** as first script arg. Any
-  script launched on a slot must accept it (main_v5 does).
-- **CUDA audit blocks launches** missing `pin_memory=True` / `non_blocking=True`
-  / no fp16 GradScaler markers. main_v5 carries `# CUDA-5060ti-validated`
-  marker because the actual transfers live in `training/jepa_trainer.py`.
+- **MPS `F.scaled_dot_product_attention` returns NaN** with `attn_mask` under `torch.no_grad`. `models/v5/predictor.py` routes MPS through manual `(q@kᵀ)·scale → masked_fill → softmax → @v`. CUDA keeps SDPA. Don't unify without testing val_loss on MPS. (F6)
+- **Quantity is winding flux, NOT magnetic field.** Per-pixel max ~1e7. `WIND_FLUX_CLIP=1e8` in `zarr_loader.py` (10× margin). Old `BZ_CLIP_GAUSS=1e5` destroyed real signal. harp_8 has 14k pathological px up to 1.68e10. Full audit: [`docs/V5_JEPA/concepts/wind_flux_clipping.md`](docs/V5_JEPA/concepts/wind_flux_clipping.md). (F2)
+- **`launch_slot.sh` injects `--device <device>`** as first script arg. Scripts launched on a slot must accept it (main_v5 does).
+- **CUDA audit blocks launches** missing `pin_memory=True` / `non_blocking=True` / no fp16 GradScaler markers. main_v5 carries `# CUDA-5060ti-validated` marker; actual transfers in `training/jepa_trainer.py`.
+- **Sync before queuing 5060ti experiments.** Run `scripts/sync_verify.sh --slot 5060ti_cuda --level both --fix` before submitting any job to 5060ti_cuda. Queue submissions bypass sync check; sync failure at launch time silently kills the run.
 
 ## Data
 
-- `data/*.zarr` — **21 AR cubes**, 12-min cadence, single-channel `wind` + `Time`.
-  | Cube | Frames | Cube | Frames |
-  |---|---|---|---|
-  | harp_8 | 200 | harp_86 | 566 |
-  | harp_17 | 91 | harp_116 | 213 |
-  | harp_26 | 215 | harp_156 | 220 |
-  | harp_43 | 219 | harp_219 | 80 |
-  | harp_45 | 125 | harp_221 | 77 |
-  | harp_49 | 239 | harp_245 | 465 |
-  | harp_51 | 169 | harp_274 | 228 |
-  | harp_54 | 256 | harp_316 | 123 |
-  | harp_83 | 126 | harp_318 | 161 |
-  | harp_11930 | 627 | harp_may2024 | 440 |
-  | harp_nov2025 | 437 | | |
+- `data/*.zarr` — **21 AR cubes**, 12-min cadence, single-channel `wind` + `Time`. Per-cube frame counts: see `docs/V5_JEPA/06_data.md`.
 - `data/manifest.json` — generated via `scripts/build_zarr_manifest.py`.
-- Locked priors: pixel scale 0.364 Mm/px constant; sign convention chiral
-  pseudoscalar; no metadata beyond `wind` + `Time`. See
-  `docs/V5_JEPA/00_overview.md` for the full lock list.
+- Locked priors: pixel scale 0.364 Mm/px constant; sign = chiral pseudoscalar; no metadata beyond `wind` + `Time`. Full lock list: `docs/V5_JEPA/00_overview.md`.
+
+## Session Start
+
+1. `mcp__graphiti__search_memory_facts("recent V5 JEPA experiments findings", group_ids=["manik"])`
+2. Read [`docs/V5_JEPA/INDEX.md`](docs/V5_JEPA/INDEX.md) then `09_progress.md`.
+3. `scripts/slot_status.sh` — verify queue matches real tmux state. Investigate ghost RUNNING entries before launching replacements.
+
+## Session End
+
+1. Append completed runs to `docs/V5_JEPA/12_experiments.md` (table row + detail section). Promote CONFIRMED findings to `12_experiments_findings.md`.
+2. Run `docs-sync` skill — verify no stale claims / 200-line cap breaches / undocumented run.jsonl entries.
+3. `mcp__graphiti__add_memory` — one episode per completed experiment (config, result, verdict). Always `group_id="manik"`.
+4. `git commit` if milestone-worthy. No commit for transient state.
+
+## Evidence Tags (use in 12_experiments.md, 09_progress.md, commits)
+
+- **CONFIRMED** — clean run, val curve, control present.
+- **HYPOTHESIS** — post-hoc explanation, single-run, or cited-only.
+- **STALE** — true on prior arch/scale that changed.
+
+Rules: post-hoc failure explanations = `HYPOTHESIS`, not facts. "KILLED" requires `CONFIRMED` evidence; else `KILLED (unvalidated)`. Base changes → retest load-bearing results before citing.
 
 ## Conventions (project-specific)
 
 - 200-line cap per file (IndraAstra-wide, see `/Volumes/T9/IndraAstra/CLAUDE.md`).
 - Cube-level holdout for splits — no AR-identity leakage across train/val.
-- D4 chiral aug: H/V flip, 90°, 270° flip sign; 180° preserves; identity passes
-  through. See `docs/V5_JEPA/06_data.md` §11.4.
+- D4 chiral aug: H/V flip, 90°, 270° flip sign; 180° preserves; identity passes through. See `docs/V5_JEPA/06_data.md` §11.4.
 
-## Pending work
+## Maintaining This File
 
-1. ~~Mask catalog~~ **DONE** — `solarflare_data/mask_catalog.py`, 5 strategies, curriculum. Validated MPS 5-ep.
-2. **path_a full run** — E08 running on 5060ti (ep6→19, resumes from ep5 val 0.127). Check `outputs_v5/run.jsonl`.
-3. **Slow curriculum convergence** — E09 running on mini_mps (100 ep, tail_only→ep25, full mix→ep65). Check `outputs_v5_mini_mask_on_slow/run.jsonl`.
-4. **Eval suite** — pixel-decoder ablation, CSI/HSS, persistence baseline. Blocked on path_a convergence.
-5. **Encoder feature cache** — cache target embeddings to disk once architecture settles. ~2× speedup.
-6. **Strategy A follow-up** — visible-only encoder (true V-JEPA sparse tokens). Separate PR.
+- Current truth — git tracks history. No dated log entries here.
+- Target ≤95 lines. Cold-path content (experiment bullets, data table, pending work) lives in `docs/V5_JEPA/INDEX.md`.
+- Confirm structural changes with user before editing. Wording/data-table updates no confirmation needed.

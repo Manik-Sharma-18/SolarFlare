@@ -1,0 +1,125 @@
+# V5.0 Path B — E32 THESIS RESUME (continue E30 from ep99 → ep150).
+# Resumes outputs_v5_thesis_curated/last.pt (E30 ep99, val 0.00268).
+# Same split / model / mask / curric as E30. Only delta: epochs 100 → 150,
+# new out_dir to preserve E30 run.jsonl + ckpts.
+# Snapshot of E30 best.pt saved at outputs_v5_thesis_curated/best_ep99.pt.
+#
+# LR behavior under resume: cosine recomputed against new total_steps =
+#   150 × 2000 = 300000. global_step ≈ 198000 → frac 0.66 along cosine →
+#   LR climbs back from min (3e-6) to mid-curve (~1.7e-4). Implicit warm restart.
+# Curriculum: pcts already past full_step at global_step ~200K (full_step_pct=0.40
+#   of total 200K = 80K boundary, well before resume). Continued full-step regime.
+# CUDA-5060ti-validated
+#
+# Launch:
+#   scripts/launch_slot.sh 5060ti_cuda main_v5.py \
+#     --config configs/v5_e32_thesis_resume.yaml --max-epochs 150 \
+#     --resume outputs_v5_thesis_curated/last.pt
+
+data:
+  zarr_dir: data/
+  manifest_path: data/manifest.json
+  t_in: 10
+  t_out: 4
+  pixel_scale_mm: 0.364
+  cadence_min: 12
+  norm: zscore_per_cube
+  augment: d4_chiral
+  splits: by_harp_id
+  val_fraction: 0.2
+  split_seed: 0
+  num_workers: 4
+  bucket_by_shape: true
+  reject_window_with_time_zero: true
+  train_cubes:
+    - harp_219
+    - harp_316
+    - harp_83
+    - harp_45
+    - harp_318
+    - harp_43
+    - harp_26
+    - harp_116
+    - harp_49
+    - harp_156
+    - harp_8
+    - harp_274
+    - harp_54
+  val_cubes:
+    - harp_221
+    - harp_11930
+    - harp_86
+
+model:
+  input_adapter:
+    in_ch: 1
+    out_ch: 13
+    patch_size: 16
+    pad_mode: constant
+    valid_mask_routing: separate
+  encoder:
+    dim: 384
+    layers: 12
+    heads: 6
+    mlp_ratio: 4
+  predictor:
+    layers: 6
+    hidden: 384
+    heads: 6
+    mlp_ratio: 4
+    dropout: 0.0
+    drop_path: 0.1
+    block_causal: true
+    rope3d_units: physical
+  pixel_decoder:
+    enabled: false
+  patch_size: 16
+  masking:
+    enabled: true
+    policy_mix: {tube: 0.34, future: 0.33, cross_time: 0.33}
+    tube_short_area: 0.15
+    tube_long_area: 0.40
+    future_pct: 0.30
+    cross_time_pct: 0.30
+    target_ratio: 0.75
+    val_policy: tail
+    valid_token_threshold: 0.5
+    seed: 0
+    curriculum:
+      tail_only_pct: 0.25
+      warmup_pct: 0.40
+
+loss:
+  primary: smooth_l1_embedding
+  pixel_aux_weight: 0.0
+
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.04
+  lr: 3.0e-4
+  schedule: cosine_warmup
+  warmup_pct: 0.10
+  min_lr_ratio: 0.01
+  epochs: 150
+  max_steps_per_epoch: 2000
+  batch_size: 1
+  grad_accum_steps: 4
+  grad_clip: 1.0
+  precision: bf16
+  target_ema_decay: 0.990
+  grad_checkpoint: true
+  compile: "off"
+  curriculum:
+    one_step_pct: 0.30
+    half_step_pct: 0.30
+    full_step_pct: 0.40
+
+logging:
+  out_dir: outputs_v5_e32_thesis_resume/
+  log_every: 10
+  val_every_epoch: 1
+  save_every_epoch: 1
+
+device:
+  prefer: cuda

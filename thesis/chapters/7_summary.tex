@@ -1,0 +1,195 @@
+\chapter{Summary and Conclusions}
+\label{ch:summary}
+
+\section{Summary of contributions}
+\label{sec:sum-contrib}
+
+This thesis has reported a joint-embedding predictive pretraining
+recipe for solar magnetic winding-flux cubes at a corpus size of
+twenty-one active regions. The principal contributions are
+recapitulated below.
+
+A preprocessing pipeline for a signed pseudoscalar field of
+variable spatial extent was developed
+(Chapter~\ref{ch:data}). The pipeline includes a
+chirality-respecting $D_{4}$ augmentation scheme that pairs
+spatial flips and quarter-turn rotations with explicit sign
+negation; a winding-flux guard of $|W| \le 10^{8}$ established by
+the audit of \S\ref{sec:data-clip}; and a cube-level (HARP-identity)
+holdout convention that eliminates active-region leakage between
+the training, validation, and downstream-probe partitions.
+
+An adaptation of the V-JEPA-2-AC template
+(Chapter~\ref{ch:architecture}) to the single-channel
+twelve-minute-cadence active-region cube format was specified.
+The model uses a ViT-Small context encoder with two-dimensional
+rotary positional embeddings in physical (megametre) units, an
+exponential-moving-average target encoder, and a six-layer
+block-causal predictor with three-dimensional rotary positional
+embeddings. A five-family mask catalogue (short tube, long tube,
+future block, cross-time, and tail) supplies the masking
+distribution; a two-stage curriculum (\S\ref{sec:exp-protocol})
+schedules its rollout. The training loss is smooth-$L_{1}$
+restricted to the intersection $M_{\text{loss}} = M_{\text{mask}}
+\land M_{\text{valid}} \land M_{\text{pad}}$ of the masked,
+data-valid, and pad-valid token sets.
+
+Four ablation families fixed the operating point
+(Chapter~\ref{ch:experiments}). The mask-policy ablation
+(E12--E15) established the uniform mixture as the new sanity-scale
+floor at val~$0.00530$, $3.42\times$ better than the tube-only
+ablation and $1.57\times$ better than the previous tube-heavy
+default. The EMA-decay sweep (E17--E20) established a monotone
+monotone response in which a smaller $\tau$ yields lower
+validation loss across the tested range, with
+$\tau = 0.990$ the winner at val~$0.00761$. The mask-ratio sweep
+(E25--E28) established a concave response peaked at $r = 0.75$
+(E26, val~$0.00876$). The thesis-scale run (E30) trained on
+thirteen cubes for one hundred epochs of two thousand steps each,
+achieving a $5.8\times$ throughput improvement over the failed
+E29b launch by excluding the five largest cubes from the bucketed
+batches that limited throughput.
+
+A frozen-feature wind-flux probe on the E30~v2 thesis-scale
+checkpoint (Chapter~\ref{ch:probe}) regressed the spatial-mean
+winding-flux curve at $R^{2} = 0.73$ (MLP, $r = 0.87$, medAPE
+$7.3\%$) on the encoder-validation cubes and remained positive on
+five novel cubes that the encoder never saw ($R^{2} = +0.23$
+aggregate, $r = +0.50$). A per-cube log-affine recalibration with
+one $(a, b)$ pair recovered a median medAPE of $9.9\%$ across eight
+evaluation cubes and beat the lag-one persistence baseline on
+four of five novel cubes (Finding~F9, confirmed). This is the
+primary downstream evidence of the present work that the JEPA
+encoder transfers as a wind-flux feature extractor to unseen
+active regions.
+
+A frozen-feature binary flare classifier was attached to the same
+cached features under a within-cube temporal split
+(\S\ref{sec:probe-flare}). The M$+$/24~h configuration was bounded
+by the lag-one persistence floor at the present corpus size: only
+one informative evaluation cube exists at this class--window pair,
+and the head AUC of $0.252$ trails the persistence TSS of $0.973$.
+A C$+$/12~h two-layer MLP head delivered AUC $= 1.000$ and
+TSS $= 1.000$ on harp\_49, exceeding the persistence floor of
+$0.975$ on the densest mixed-label evaluation cube and constituting
+the first frozen-feature flare classifier in the present work to
+beat persistence on an informative cube (Finding~F13). The result
+is conditional rather than uniform: of eight mixed-label cubes
+under the C$+$ class, the harp\_49 positive is the only configuration
+to beat persistence; no head--window pair dominates the cross-cube
+aggregate at twenty-one cubes.
+
+\section{Limitations}
+\label{sec:sum-limits}
+
+The principal limitations of the present work are listed below in
+decreasing order of severity.
+
+\paragraph{Corpus scale.} Twenty-one active-region cubes is two
+orders of magnitude smaller than the smallest validated video
+self-supervised regime in the
+literature~\cite{tong2022videomae,wang2023videomaev2}. The
+sanity-floor losses reported in Chapter~\ref{ch:experiments}
+characterise the optimisation behaviour of the present recipe but
+do not establish that the resulting encoder transfers to a
+downstream task at the level of larger-corpus foundation models.
+
+\paragraph{Pixel-only ceiling.} Even with a perfect downstream
+head, pixel-only flare forecasters are bounded by a true-skill-
+statistic ceiling of approximately~$0.7$. The fusion of pixel
+features with photospheric scalar summaries (SHARP
+parameters~\cite{bobra2014sharp}) is required to break past this
+ceiling and is deferred to a successor configuration.
+
+\paragraph{Downstream-head scope.} The wind-flux probe of
+\S\S\ref{sec:probe-stage1}--\ref{sec:probe-calibration} is a
+regression diagnostic anchored to lag-one persistence, not an
+operational forecast. The binary flare classifier of
+\S\ref{sec:probe-flare} is anchored to lag-one persistence and
+reports the true skill statistic at the per-cube level; it
+attains a positive result on harp\_49 at the C$+$/12~h pair and
+does not generalise uniformly across the eight mixed-label
+evaluation cubes. Critical success index and Heidke skill score
+on a pixel-space reconstructed field require a decoder head and
+a GOES-event catalogue merge, neither of which is implemented in
+the present work.
+
+\paragraph{Single backend coupling.} The Apple~MPS backend
+requires a hand-written attention path under
+\texttt{torch.no\_grad} because the SDPA kernel returns NaN with
+non-trivial \texttt{attn\_mask} (Finding~F6). The CUDA and MPS
+paths are not unified; unifying them would silently regress MPS
+evaluation. The coupling is benign but increases the maintenance
+surface.
+
+\paragraph{Patch-size and temporal-context unswept.} The patch
+size, $t_{\text{in}}$, $t_{\text{out}}$, and predictor depth were
+fixed at the values reported in Chapter~\ref{ch:architecture} and
+not swept; downstream sensitivity to these settings is unknown.
+
+\section{Future outlook}
+\label{sec:sum-future}
+
+The roadmap from the present pretraining result to operational
+flare forecasting comprises four steps.
+
+\paragraph{Strategy A: visible-only encoder.} The current
+implementation processes all tokens, including masked-out ones,
+through the context encoder. A true V-JEPA visible-only encoder
+processes only the visible tokens, recovering the
+$1{-}r \approx 25\%$ computational fraction and enabling a
+larger predictor for the same wall-clock budget. The rewrite
+requires a sparse-token patchifier and a corresponding predictor
+contract change.
+
+\paragraph{Pixel decoder.} A
+DPT~\cite{ranftl2021dpt}- or
+SegFormer~\cite{xie2021segformer}-style decoder attached to the
+frozen encoder would produce pixel-space reconstructions of the
+winding-flux field and supply persistence-anchored Critical
+Success Index (CSI) and Heidke Skill Score (HSS) numbers. The decoupling principle of Chapter~\ref{ch:probe}
+applies: the decoder composes freely with the frozen encoder and
+does not require pretraining changes.
+
+\paragraph{Pretraining at scale on SuryaBench.} The SuryaBench
+corpus~\cite{suryabench2025} is the natural next pretraining
+substrate. The SuryaBench data are at $4096^{2}$ spatial resolution
+with thirteen channels at sixty-minute cadence, so the present
+single-channel twelve-minute pipeline would require a channel
+adapter and a temporal interpolation; both are well-posed
+modifications that do not touch the joint-embedding doctrine.
+
+\paragraph{Multimodal SHARP-GOES fusion (V5.2).} Pixel features
+fused with the SHARP photospheric scalar
+summaries~\cite{bobra2014sharp} have been reported in the
+published literature to exceed the pixel-only TSS ceiling,
+breaking past the limit observed for pixel-only inputs. A separate pipeline merging cube
+features with SHARP scalar timeseries and GOES-event labels is the
+target configuration for a successor work; it is outside the scope
+of the present thesis.
+
+\section{Concluding remark}
+\label{sec:sum-final}
+
+The joint-embedding predictive doctrine adapts to the solar
+magnetic-winding-flux setting at a corpus size two orders of
+magnitude below the smallest validated video self-supervised
+regime cited in this thesis. The wind-flux probe of
+Chapter~\ref{ch:probe} is the load-bearing evidence: the frozen
+E30~v2 encoder regresses $\langle W \rangle(t)$ on five novel
+active regions to median absolute percentage error $9.9\%$ after
+a two-parameter per-cube recalibration, beating lag-one
+persistence on four of them (Finding~F9). A secondary
+frozen-feature flare classifier reaches AUC~$=1.000$ on the
+densest mixed-label evaluation cube under the C$+$/12~h
+configuration (Finding~F13), exceeding the persistence floor on
+the only cube that admits the test at the present corpus size.
+The thesis hypothesis --- that JEPA pretraining is feasible at
+small-corpus solar scale and that the resulting features carry
+the literature-supported flare-precursor signal --- is, within
+the disclosed calibration caveat, supported. The
+cross-active-region generalisation that would constitute an
+operational forecaster remains future work; the next
+configuration is a larger pretraining substrate and a multimodal
+downstream head, and the present configuration is the foundation
+on which that successor will rest.

@@ -1,0 +1,252 @@
+\chapter{V5 JEPA Architecture}
+\label{ch:architecture}
+
+This chapter specifies the model architecture used throughout the
+present work, an adaptation of the V-JEPA-2-AC
+template~\cite{vjepa2_2025,assran2024vjepa} to a single-channel,
+signed pseudoscalar field of variable spatial extent and 12-minute
+cadence.
+
+\section{Joint-embedding predictive doctrine}
+\label{sec:arch-doctrine}
+
+In a Joint-Embedding Predictive Architecture (JEPA), prediction is
+performed in the embedding space of a learned encoder, not in pixel
+space~\cite{assran2023ijepa,lecun2022path}. Two encoders are
+maintained: a \emph{context encoder} that consumes a masked view of
+the input and a \emph{target encoder} that consumes the
+corresponding unmasked view. A predictor maps context embeddings to
+target embeddings; the smooth-$L_{1}$ loss between the two governs
+training. The target encoder is updated by exponential moving
+average (EMA) of the context encoder's parameters and receives no
+gradient. The asymmetry between the two streams prevents the
+representational collapse that would otherwise drive both encoders
+to a constant solution; no contrastive negatives are required.
+
+Compared with pixel-space reconstruction
+(masked autoencoder, MAE~\cite{he2022mae}; VideoMAE~\cite{tong2022videomae}; the Pathak
+context encoder~\cite{pathak2016contextencoders}), the
+embedding-space objective discards by construction the high-frequency
+content of the target field that the encoder has chosen not to keep.
+This addresses the persistence collapse observed in the V4
+pixel-space forecaster on the same corpus.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=stealth, node distance=0.9cm and 0.9cm,
+  font=\small,
+  block/.style={draw, rounded corners, align=center, minimum width=2.4cm,
+                minimum height=0.8cm, fill=blue!5},
+  enc/.style={block, fill=blue!12},
+  pred/.style={block, fill=orange!18},
+  tgt/.style={block, fill=green!15},
+  loss/.style={block, fill=red!12, minimum width=3.4cm},
+  io/.style={align=center, font=\small\itshape},
+  arr/.style={->, thick},
+  ema/.style={->, dashed, thick, blue!60!black}]
+
+  \node[io] (xin) {input cube $x \in \mathbb{R}^{B \times T \times 1 \times H \times W}$};
+  \node[block, below=0.5cm of xin] (mask) {masking $M$\\(\S\ref{sec:arch-mask})};
+  \node[enc, below left=0.9cm and 1.4cm of mask] (ctx) {context encoder\\ViT-Small + RoPE-2D};
+  \node[tgt, below right=0.9cm and 1.4cm of mask] (tgt) {target encoder\\EMA, \texttt{stop\_grad}};
+  \node[pred, below=1.1cm of ctx] (pred) {block-causal\\predictor};
+  \node[io, below=0.5cm of pred] (zhat) {$\hat z_{\text{masked}}$};
+  \node[io, below=0.5cm of tgt] (ztgt)  {$z_{\text{tgt}}$};
+  \node[loss, below right=1.5cm and -0.9cm of pred] (lo) {smooth-$L_1$ over\\
+        $M_{\text{loss}} = M_{\text{mask}} \wedge M_{\text{valid}} \wedge M_{\text{pad}}$};
+
+  \draw[arr] (xin) -- (mask);
+  \draw[arr] (mask) -- node[midway, above left, font=\scriptsize] {visible} (ctx);
+  \draw[arr] (mask) -- node[midway, above right, font=\scriptsize] {full} (tgt);
+  \draw[arr] (ctx) -- (pred);
+  \draw[arr] (pred) -- (zhat);
+  \draw[arr] (tgt) -- (ztgt);
+  \draw[arr] (zhat) -| (lo);
+  \draw[arr] (ztgt) -| (lo);
+  \draw[ema] (ctx.north east) to[bend left=18]
+       node[midway, above, font=\scriptsize, blue!60!black]
+       {EMA, $\theta_{\text{tgt}} \leftarrow \tau\,\theta_{\text{tgt}}+(1-\tau)\,\theta_{\text{ctx}}$}
+       (tgt.north west);
+\end{tikzpicture}
+\caption{V5 joint-embedding predictive architecture. The input
+cube is masked once and routed to both encoders: the context
+encoder sees only the visible tokens, the target encoder sees the
+full input under \texttt{stop\_grad}. The block-causal predictor
+maps context embeddings to the masked target positions; the
+smooth-$L_{1}$ loss is computed over the mask intersection
+$M_{\text{loss}} = M_{\text{mask}} \wedge M_{\text{valid}}
+\wedge M_{\text{pad}}$ (\S\ref{sec:arch-loss}). The dashed arrow
+records the parameter EMA from context to target with decay
+$\tau$ (no gradient flows backward through it).}
+\label{fig:jepa-arch}
+\end{figure}
+\FloatBarrier
+
+\section{Input adapter}
+\label{sec:arch-adapter}
+
+Active-region cubes arrive as tensors $x \in \mathbb{R}^{B \times T
+\times 1 \times H \times W}$, with $T = t_{\text{in}} + t_{\text{out}}$
+frames at 12-minute cadence and $(H, W)$ varying per cube. A
+bucketed sampler groups cubes of similar spatial extent within each
+mini-batch. The input adapter reflection-pads $(H, W)$ to the next
+multiple of the patch size $P = 16$ and lifts the single physical
+channel (winding flux) to 13 latent channels via a $1 \times 1$
+convolution. The latent channel count matches the channel budget of
+the published Surya backbone and was kept for compatibility with the
+abandoned Path~A. A boolean token-pad mask $M_{\text{pad}} \in
+\{0,1\}^{h_{p} \times w_{p}}$ is propagated alongside the embedded
+tensor, with $h_{p} = H_{p}/P$ and $w_{p} = W_{p}/P$, and is later
+intersected with the loss mask so that padded positions never enter
+the gradient.
+
+\section{Context encoder}
+\label{sec:arch-ctx}
+
+The context encoder is a Vision Transformer (ViT) of the
+\textsc{ViT-Small} class~\cite{dosovitskiy2020vit}. Each frame is patch-embedded by a
+$\text{Conv2d}(13 \to d, P{=}16, s{=}16)$ stem with $d = 384$,
+then processed by $L_{\text{ctx}} = 12$ pre-norm transformer blocks
+of bidirectional spatial attention. Weights are shared across the
+frame axis: each of the $T$ frames in a window is encoded
+independently, so that all temporal mixing is concentrated in the
+predictor (\S\ref{sec:arch-pred}).
+
+Spatial position is encoded by a two-dimensional rotary position
+embedding (RoPE)~\cite{su2021rope} whose coordinates are expressed in physical units of
+megametres on the photospheric surface. With a pixel scale of $0.364
+\,\mathrm{Mm/px}$ and patch size $P$ the angular frequency table is
+fixed across cubes, so that the same physical separation between two
+patches receives the same rotation regardless of where it sits within
+a variable-sized cube. The encoder receives gradients via the
+standard backward pass.
+
+\section{Target encoder}
+\label{sec:arch-tgt}
+
+The target encoder is a parameter-wise EMA copy of the context
+encoder; its forward pass is executed under
+\texttt{torch.no\_grad}, so that no gradient flows through the target
+branch. After each optimiser step the parameter update
+\begin{equation}
+\theta_{\text{tgt}} \;\leftarrow\; \tau \,\theta_{\text{tgt}}
+\;+\; (1-\tau)\,\theta_{\text{ctx}},
+\qquad \tau \in (0,1),
+\label{eq:ema}
+\end{equation}
+is applied. The decay coefficient $\tau$ is the
+single most consequential hyperparameter of the pretraining stage and
+is swept in Chapter~\ref{ch:experiments}. The default value
+$\tau = 0.996$ is inherited from V-JEPA~2~\cite{vjepa2_2025}; an
+ablation between $\tau = 0.990$ and $\tau = 0.9995$ is reported in
+\S\ref{sec:exp-ema}. The target encoder consumes the
+\emph{clean} (unmasked) latent tensor, so that target embeddings are
+not contaminated by the mask token.
+
+\section{Block-causal predictor}
+\label{sec:arch-pred}
+
+The predictor is a $L_{\text{pred}} = 6$ block transformer of
+embedding dimension $d = 384$. It receives the context embedding
+tensor reshaped to $[\,B,\, T\,h_{p}\,w_{p},\, d\,]$ and applies a
+three-dimensional rotary position embedding indexed by the triplet
+(time in minutes, $y$ in Mm, $x$ in Mm). Within a frame, attention
+is fully bidirectional; across frames, the attention mask is
+block-causal, that is, frame $t$ may attend to frames $0,1,\ldots,t$
+but not to frames $t+1,\ldots,T-1$. The block-causal structure is
+the ``\textsc{ac}'' component of V-JEPA-2-AC and is necessary for
+the future-block mask of \S\ref{sec:arch-mask} to constitute a
+non-trivial pretext task.
+
+\section{Mask catalogue and curriculum}
+\label{sec:arch-mask}
+
+Five mask families are catalogued in
+\texttt{solarflare\_data/mask\_catalog.py}, summarised in
+Table~\ref{tab:masks}. The default training mix is a categorical
+distribution over three of the five families, $\{\text{tube}:0.5,\
+\text{future}:0.3,\ \text{cross\_time}:0.2\}$. The tail-only and
+random-region families are reserved for the curriculum and the
+ablation, respectively.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{l l l l}
+\toprule
+Family & Shape & Scale & Purpose \\
+\midrule
+Short tube       & spatial block, all $T$           & 15\% area        & local AR structure \\
+Long tube        & spatial block, all $T$           & 40\% area        & global flux motion \\
+Future block     & full spatial, last $K$ frames    & $100\% \cdot K/T$ & future prediction \\
+Cross-time       & full spatial, random $T$ frames  & 30\% time        & non-causal infill \\
+Tail (downstream)& full spatial, last $t_{\text{out}}$ & $t_{\text{out}}/T$ & deployment-aligned \\
+\bottomrule
+\end{tabular}
+\caption{V5 mask catalogue. Appendix~\ref{app:masks} renders one
+realisation of each family on a single frame.}
+\label{tab:masks}
+\end{table}
+
+The curriculum interpolates the mix over training: from epoch $0$ to
+$0.25\,E$ the model sees the \emph{tail-only} family ($\{\text{tail}:
+1\}$); from $0.25\,E$ to $0.40\,E$ the mix interpolates linearly
+toward the default; from $0.40\,E$ to the end of training the
+default mix is used. The slow schedule
+($0.25 / 0.40$) was selected over a faster schedule ($0.10 /
+0.20$) on the basis of finding~F1 (see
+Chapter~\ref{ch:experiments}). The intent of the curriculum is to
+let the encoder consolidate the deployment-aligned tail mask before
+the harder tube and future families are introduced.
+
+\section{Loss}
+\label{sec:arch-loss}
+
+The pretraining objective is the smooth-$L_{1}$ (Huber)
+distance~\cite{girshick2015fastrcnn} between the predicted and
+target embeddings, evaluated only at token positions
+that satisfy three constraints simultaneously: the position is masked
+in the context view, its underlying pixels are physically valid
+(after the winding-flux outlier guard of Chapter~\ref{ch:data}),
+and the position is not a padded token from
+\S\ref{sec:arch-adapter}. The intersection
+\begin{equation}
+\mathcal{M}_{\text{loss}} \;=\; M_{\text{mask}}
+\,\wedge\, M_{\text{valid}}
+\,\wedge\, M_{\text{pad}}
+\label{eq:lossmask}
+\end{equation}
+is computed token-wise and the loss is averaged over $|\mathcal{M}_{\text{loss}}|$.
+A subtle bug in the token-pad mask used in earlier sanity runs ---
+the trailing-frame slice $[\![-0,]\!]$ was a Python no-op and
+disabled the pad mask entirely --- was fixed prior to the experiment
+campaign of Chapter~\ref{ch:experiments}; the fix has no effect on
+runs in which no padding was applied.
+
+\section{Parameter budget}
+\label{sec:arch-scale}
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{l r c}
+\toprule
+Component & Parameters & Gradient \\
+\midrule
+Input adapter            & \phantom{0}0.2~M & yes \\
+Context encoder (ViT-S, $L{=}12$, $d{=}384$) & 22~M  & yes \\
+Target encoder (EMA copy of context) & 22~M  & no  \\
+Block-causal predictor ($L{=}6$, $d{=}384$)  & \phantom{0}9~M  & yes \\
+\midrule
+Total                                         & 55~M  &     \\
+Trainable                                     & 33~M  &     \\
+\bottomrule
+\end{tabular}
+\caption{V5 parameter budget. Trainable count excludes the EMA target.}
+\label{tab:scale}
+\end{table}
+
+\noindent The full forward graph in PyTorch fits in
+approximately $12\,\mathrm{GB}$ of CUDA memory at batch~$\times$~time
+$= 4 \times 14$, single precision activations under
+\texttt{bf16} autocast and gradient checkpointing on the context
+encoder.

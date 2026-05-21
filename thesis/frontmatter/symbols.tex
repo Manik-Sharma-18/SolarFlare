@@ -1,0 +1,52 @@
+\chapter*{Symbols and Abbreviations}
+\addcontentsline{toc}{chapter}{Symbols and Abbreviations}
+
+\vspace{0.8cm}
+
+\noindent\textbf{Abbreviations}
+\vspace{0.3cm}
+
+\noindent
+\begin{tabular}{l p{0.78\textwidth}}
+AR        & Active Region (a region of strong, structured magnetic field on the solar surface) \\
+SDO       & Solar Dynamics Observatory \\
+HMI       & Helioseismic and Magnetic Imager (onboard SDO) \\
+SHARP     & Spaceweather HMI Active Region Patch \\
+HARP      & HMI Active Region Patch \\
+GOES      & Geostationary Operational Environmental Satellite \\
+SSL       & Self-Supervised Learning \\
+JEPA      & Joint-Embedding Predictive Architecture \\
+V-JEPA    & Video JEPA \\
+MAE       & Masked Autoencoder \\
+ViT       & Vision Transformer \\
+EMA       & Exponential Moving Average \\
+RoPE      & Rotary Position Embedding \\
+SDPA      & Scaled Dot-Product Attention \\
+LoRA      & Low-Rank Adaptation \\
+TSS       & True Skill Statistic \\
+HSS       & Heidke Skill Score \\
+CSI       & Critical Success Index \\
+SI        & Syst\`eme International d'unit\'es \\
+\end{tabular}
+
+\vspace{0.8cm}
+
+\noindent\textbf{Symbols}
+\vspace{0.3cm}
+
+\noindent
+\begin{tabular}{l p{0.78\textwidth}}
+$W(\mathbf{r},t)$ & Magnetic winding flux density at pixel $\mathbf{r}$ and time $t$ \\
+$\tau$            & EMA decay coefficient for the target encoder \\
+$r$               & Mask ratio (fraction of tokens hidden from the context encoder) \\
+$t_{\text{in}}$   & Number of input (context) frames per training window \\
+$t_{\text{out}}$  & Number of target (future) frames per training window \\
+$T$               & Total frames per window, $T = t_{\text{in}} + t_{\text{out}}$ \\
+$d$               & Embedding dimension of the ViT context and target encoders \\
+$L$               & Number of transformer blocks (encoder or predictor) \\
+$z_{\text{ctx}}$  & Embedding produced by the context encoder \\
+$z_{\text{tgt}}$  & Embedding produced by the EMA target encoder \\
+$z_{\text{pred}}$ & Embedding predicted by the block-causal predictor \\
+$\mathcal{L}$     & Smooth-$L_1$ loss in embedding space \\
+$\mathrm{Mm}$     & Megametre, $10^{6}$~m (used for physical pixel scale) \\
+\end{tabular}

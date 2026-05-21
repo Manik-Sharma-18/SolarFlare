@@ -1,0 +1,59 @@
+% main.tex — IIT BHU IDD thesis, Manik Sharma (21174015)
+% Build: latexmk -pdf main.tex
+\documentclass{thesis}
+
+\begin{document}
+
+% ---------- Frontmatter (Roman numerals) ----------
+\frontmatter
+\makeinnertitlepage
+\input{frontmatter/certificate}
+\input{frontmatter/declaration}
+\input{frontmatter/copyright}
+\input{frontmatter/acknowledgement}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\input{frontmatter/symbols}
+\input{frontmatter/preface}
+
+% ---------- Main text (Arabic) ----------
+\mainmatter
+\input{chapters/1_intro}
+\input{chapters/2_background}
+\input{chapters/3_data}
+\input{chapters/4_architecture}
+\input{chapters/5_experiments}
+\input{chapters/6_probe}
+\input{chapters/7_summary}
+
+% ---------- References ----------
+\bibliographystyle{ieeetr}
+\chapter*{Bibliography}
+\addcontentsline{toc}{chapter}{Bibliography}
+\begin{btSect}{bib/journals}
+  \section*{Journals}
+  \btPrintAll
+\end{btSect}
+\begin{btSect}{bib/conferences}
+  \section*{Conference Proceedings}
+  \btPrintAll
+\end{btSect}
+\begin{btSect}{bib/books}
+  \section*{Books}
+  \btPrintAll
+\end{btSect}
+\begin{btSect}{bib/techreports}
+  \section*{Technical Reports}
+  \btPrintAll
+\end{btSect}
+
+% ---------- Appendices ----------
+\appendix
+\input{appendices/a_hyperparams}
+\input{appendices/b_masks}
+\input{appendices/c_clipping}
+\input{appendices/d_curves}
+
+\end{document}
