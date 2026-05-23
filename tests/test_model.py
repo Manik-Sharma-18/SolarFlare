@@ -34,7 +34,6 @@ def _make_model(**overrides):
         t_out=2,
         channels=[4, 8, 16],
         kernel_size=3,
-        downsample_input=False,
         use_checkpointing=False,
         dropout_rate=0.0,
     )
@@ -84,15 +83,6 @@ class TestForwardShape:
         with torch.no_grad():
             out = model(x)
         assert out.shape == (1, 1, 2, 32, 32), f"Got {out.shape}"
-
-    def test_forward_with_downsample(self):
-        """downsample_input=True with 64x64 spatial -> (1,1,2,64,64)."""
-        model = _make_model(downsample_input=True, t_out=2)
-        model.eval()
-        x = torch.randn(1, 1, 4, 64, 64)
-        with torch.no_grad():
-            out = model(x)
-        assert out.shape == (1, 1, 2, 64, 64), f"Got {out.shape}"
 
     def test_forward_sa_convlstm(self):
         """ARCH-01: SA-ConvLSTM model produces correct output shape."""
@@ -237,20 +227,6 @@ class TestFullArchitecture:
         assert out.shape == (1, 1, 2, 32, 32)
         assert torch.isfinite(out).all()
 
-    def test_full_arch_with_downsample(self):
-        """Full v3.0 arch with input downsampling."""
-        model = _make_model(
-            use_sa_convlstm=True, temporal_attention=True,
-            attention_gate=True, delta_scale_init=100.0,
-            downsample_input=True, t_out=2
-        )
-        model.eval()
-        x = torch.randn(1, 1, 10, 64, 64)
-        with torch.no_grad():
-            out = model(x)
-        assert out.shape == (1, 1, 2, 64, 64)
-        assert torch.isfinite(out).all()
-
     def test_backward_compatibility(self):
         """Default params (no SA features) still work correctly."""
         model = _make_model(t_out=2)
@@ -263,7 +239,7 @@ class TestFullArchitecture:
 
     def test_sa_convlstm_replaces_all_modules(self):
         """ARCH-01: All 6 ConvLSTM modules are SAConvLSTM when enabled."""
-        from models.sa_convlstm import SAConvLSTM
+        from models import SAConvLSTM
         model = _make_model(use_sa_convlstm=True)
         assert isinstance(model.encoder_conv1, SAConvLSTM)
         assert isinstance(model.encoder_conv2, SAConvLSTM)

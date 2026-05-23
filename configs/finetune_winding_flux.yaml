@@ -21,23 +21,24 @@ transfer_learning:
   lr_scale_pretrained: 0.1      # Pretrained layers get 10x lower LR after unfreezing
 
 data:
+  loader: "harp_zarr"          # use HARP *.zarr cubes (post-V5-pivot default)
   data_dir: "./data"
-  use_preprocessed: true
-  preprocessed_dir: "./data_processed"
   t_in: 10
   t_out: 4
   augmentation: "balanced"
-  stride: 4
+  stride: 4                    # temporal stride between windows
   split_ratios: [0.7, 0.2, 0.1]
-  dual_channel: true       # Flux + extreme indicator
+  dual_channel: true           # Flux + extreme indicator (3 sigma)
   num_workers: 0
-  crop_size: [437, 877]
+  window_size: 128             # spatial sliding window; cubes < 128 dropped
+  window_stride: 64            # 50% overlap, MONAI-style
+  clip: 1.0e8                  # WIND_FLUX_CLIP, per-pixel artefact guard
   flare_oversample_weight: 5.0
   flare_density_threshold: 0.005
 
 normalization:
-  method: "asinh"
-  asinh_softening: 1000.0  # Winding flux units (different from magnetogram 500.0)
+  method: "zscore_per_cube"    # V5-informed: per-cube (mu, sigma), nan-safe
+  signed_asinh_softening: 1.0e6  # only used if method=signed_asinh
   extreme_threshold_percentile: 99
 
 model:

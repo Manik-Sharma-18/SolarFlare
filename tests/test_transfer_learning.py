@@ -17,7 +17,7 @@ def _make_model(input_channels, **kwargs):
     from models.predictor import SolarFluxPredictor
     defaults = dict(
         output_channels=1, t_out=T_OUT, channels=CHANNELS,
-        kernel_size=KERNEL_SIZE, downsample_input=False,
+        kernel_size=KERNEL_SIZE,
         use_sa_convlstm=True, temporal_attention=True,
         attention_gate=True, delta_scale_init=0.5, dropout_rate=0.0,
     )

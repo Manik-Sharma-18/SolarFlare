@@ -88,7 +88,6 @@ def tiny_model_config():
         "t_out": 2,
         "channels": [4, 8, 16],
         "kernel_size": 3,
-        "downsample_input": False,
         "use_checkpointing": False,
         "dropout_rate": 0.0,
     }
@@ -103,7 +102,6 @@ def sa_model_config():
         "t_out": 2,
         "channels": [4, 8, 16],
         "kernel_size": 3,
-        "downsample_input": False,
         "use_checkpointing": False,
         "dropout_rate": 0.15,
         "use_sa_convlstm": True,

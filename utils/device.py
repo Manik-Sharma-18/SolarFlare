@@ -75,27 +75,27 @@ def _log_device(device: torch.device) -> None:
 
 
 def get_amp_context(use_amp: bool, device: torch.device):
-    """
-    Get the appropriate autocast context for mixed precision.
+    """Autocast context for mixed precision.
 
-    Returns nullcontext if use_amp is False; otherwise returns
-    torch.amp.autocast for the device type.
+    CUDA → bf16 (wider dynamic range than fp16, no GradScaler needed).
+    Skill `solarflare-training` step801 evidence: fp16 + GradScaler runs
+    4.4× slower on Blackwell and triggers grad overflow on heavy-tail
+    flux loss. MPS / CPU → device-default autocast (no scaler).
     """
     if not use_amp:
         return nullcontext()
+    if device.type == "cuda":
+        return torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     return torch.amp.autocast(device_type=device.type)
 
 
 def get_grad_scaler(use_amp: bool, device: torch.device):
-    """
-    Get gradient scaler for mixed precision training.
+    """Gradient scaler. Always DummyGradScaler.
 
-    Real GradScaler is only used for CUDA with AMP enabled.
-    MPS and CPU always get DummyGradScaler (MPS does not support
-    CUDA-style loss scaling).
+    bf16 has wide enough exponent range to skip loss scaling; fp16
+    GradScaler is the path explicitly banned on Blackwell.
+    DummyGradScaler still NaN-guards optimizer.step().
     """
-    if use_amp and device.type == "cuda":
-        return torch.amp.GradScaler()
     return _DummyGradScaler()
 
 

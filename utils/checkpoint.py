@@ -13,6 +13,33 @@ logger = logging.getLogger(__name__)
 
 CHECKPOINT_VERSION = 1
 
+_COMPILE_PREFIX = "_orig_mod."
+
+
+def _unwrap_compiled(model: torch.nn.Module) -> torch.nn.Module:
+    """Return the underlying ``nn.Module`` for a ``torch.compile``-wrapped model.
+
+    ``torch.compile`` wraps modules so their ``state_dict`` keys gain an
+    ``_orig_mod.`` prefix. Saving the unwrapped state_dict keeps checkpoint
+    keys portable across compiled and uncompiled load sites (e.g. inference).
+    """
+    return getattr(model, "_orig_mod", model)
+
+
+def _strip_orig_mod_prefix(state_dict: dict) -> dict:
+    """Remove leading ``_orig_mod.`` from state_dict keys if present.
+
+    Legacy checkpoints saved while ``torch.compile`` was active carry the
+    prefix; strip it so :func:`nn.Module.load_state_dict` matches regardless
+    of whether the target module is currently compiled.
+    """
+    if not any(k.startswith(_COMPILE_PREFIX) for k in state_dict):
+        return state_dict
+    return {
+        (k[len(_COMPILE_PREFIX):] if k.startswith(_COMPILE_PREFIX) else k): v
+        for k, v in state_dict.items()
+    }
+
 
 def _move_optimizer_state_to_cpu(optimizer_state_dict: dict) -> None:
     """Recursively walk optimizer state dict and move all tensors to CPU in-place."""
@@ -97,7 +124,9 @@ def save_checkpoint(
     checkpoint = {
         'checkpoint_version': CHECKPOINT_VERSION,
         'epoch': epoch,
-        'model_state_dict': {k: v.cpu() for k, v in model.state_dict().items()},
+        'model_state_dict': {
+            k: v.cpu() for k, v in _unwrap_compiled(model).state_dict().items()
+        },
         'optimizer_state_dict': copy.deepcopy(optimizer.state_dict()),
         'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
         'scaler_state_dict': (
@@ -224,6 +253,14 @@ def load_checkpoint(filepath, device=None):
             f"expected v{CHECKPOINT_VERSION}. Cannot load."
         )
 
+    # Strip torch.compile ``_orig_mod.`` prefix at the source so every consumer
+    # (resume, inference, transfer, test eval) sees clean key names regardless
+    # of whether the saving run was compiled.
+    if 'model_state_dict' in checkpoint:
+        checkpoint['model_state_dict'] = _strip_orig_mod_prefix(
+            checkpoint['model_state_dict']
+        )
+
     return checkpoint
 
 
@@ -259,10 +296,13 @@ def load_checkpoint_for_resume(
     checkpoint = load_checkpoint(filepath)
 
     # --- Architecture compatibility ---
-    _check_state_dict_compatibility(model, checkpoint['model_state_dict'])
+    # Strip torch.compile prefix so legacy checkpoints saved with the wrapper
+    # active load cleanly into both compiled and uncompiled targets.
+    checkpoint['model_state_dict'] = _strip_orig_mod_prefix(checkpoint['model_state_dict'])
+    _check_state_dict_compatibility(_unwrap_compiled(model), checkpoint['model_state_dict'])
 
     # --- Restore model ---
-    model.load_state_dict(checkpoint['model_state_dict'])
+    _unwrap_compiled(model).load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
 
     # --- Restore optimizer ---

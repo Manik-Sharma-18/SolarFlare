@@ -47,13 +47,16 @@ class SolarFluxDataset(Dataset):
     def __init__(
         self,
         file_paths: List[str],
-        index: List[Tuple[int, int, int]],
+        index: List[Tuple],
         t_in: int = 8,
         t_out: int = 3,
         dual_channel: bool = False,
         extreme_threshold: Optional[float] = None,
         norm_params: Optional[Dict] = None,
         norm_method: Optional[str] = None,
+        window_size: Optional[int] = None,
+        per_cube_norm: Optional[Dict[int, Dict[str, float]]] = None,
+        is_pseudoscalar: bool = False,
     ):
         """
         Args:
@@ -68,8 +71,17 @@ class SolarFluxDataset(Dataset):
                 on-the-fly.  Keys depend on *norm_method*:
                 - ``asinh``: ``{"asinh_softening": float, "scale": float}``
                 - ``linear``: ``{"center": float, "scale": float}``
-            norm_method: ``"asinh"`` or ``"linear"`` (required when
-                *norm_params* is provided).
+            norm_method: ``"asinh"``, ``"linear"``, ``"zscore_per_cube"``,
+                or ``"signed_asinh"`` (required when *norm_params* or
+                *per_cube_norm* is provided).
+            window_size: If set, the dataset uses spatial sliding-window
+                indexing (5-tuple index). Window is square, ``window_size ×
+                window_size``. If ``None``, full-frame slicing (3-tuple
+                index, legacy behaviour).
+            per_cube_norm: Optional mapping ``{file_idx: {mu, sigma}}`` for
+                ``zscore_per_cube`` / ``signed_asinh`` methods. When set,
+                *norm_params* may be a fallback for cubes missing from the
+                dict.
         """
         # Serializable attributes only -- no numpy arrays or mmap handles
         self.file_paths = list(file_paths)
@@ -80,6 +92,9 @@ class SolarFluxDataset(Dataset):
         self.extreme_threshold = extreme_threshold
         self.norm_params = norm_params
         self.norm_method = norm_method
+        self.window_size = window_size
+        self.per_cube_norm = per_cube_norm
+        self.is_pseudoscalar = is_pseudoscalar
 
         # Populated lazily per worker via _get_mmap
         self._mmap_cache: Dict[int, np.ndarray] = {}
@@ -106,12 +121,18 @@ class SolarFluxDataset(Dataset):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _apply_augmentation(data: np.ndarray, aug_type: int) -> np.ndarray:
+    def _apply_augmentation(data: np.ndarray, aug_type: int,
+                            is_pseudoscalar: bool = False) -> np.ndarray:
         """Apply a deterministic spatial augmentation and return a contiguous copy.
 
         Args:
             data: Array of shape ``(T, H, W)``.
             aug_type: One of the ``AUG_*`` constants.
+            is_pseudoscalar: When ``True`` (winding flux), parity-odd
+                transforms (H-flip, V-flip, 90°, 270°) are paired with a
+                sign flip; the identity and 180° rotation preserve sign.
+                This is the D4 chirality rule from
+                ``archive/v5_jepa/docs/V5_JEPA/06_data.md`` §11.4.
 
         Returns:
             Contiguous ``(T, H, W)`` array with the augmentation applied.
@@ -119,15 +140,19 @@ class SolarFluxDataset(Dataset):
         if aug_type == AUG_NONE:
             return data.copy()
         if aug_type == AUG_HFLIP:
-            return np.flip(data, axis=2).copy()
+            out = np.flip(data, axis=2).copy()
+            return -out if is_pseudoscalar else out
         if aug_type == AUG_VFLIP:
-            return np.flip(data, axis=1).copy()
+            out = np.flip(data, axis=1).copy()
+            return -out if is_pseudoscalar else out
         if aug_type == AUG_ROT90:
-            return np.rot90(data, k=1, axes=(1, 2)).copy()
+            out = np.rot90(data, k=1, axes=(1, 2)).copy()
+            return -out if is_pseudoscalar else out
         if aug_type == AUG_ROT180:
             return np.rot90(data, k=2, axes=(1, 2)).copy()
         if aug_type == AUG_ROT270:
-            return np.rot90(data, k=3, axes=(1, 2)).copy()
+            out = np.rot90(data, k=3, axes=(1, 2)).copy()
+            return -out if is_pseudoscalar else out
         # Fallback -- treat unknown codes as no augmentation
         return data.copy()
 
@@ -173,16 +198,29 @@ class SolarFluxDataset(Dataset):
             *None* on unrecoverable read error (use a custom collate_fn
             to skip ``None`` samples).
         """
-        file_idx, window_start, aug_type = self.index[idx]
+        entry = self.index[idx]
+        if len(entry) == 5:
+            file_idx, window_start, y_start, x_start, aug_type = entry
+        else:
+            file_idx, window_start, aug_type = entry
+            y_start = x_start = None
 
         try:
             mmap_data = self._get_mmap(file_idx)
 
-            # Slice windows from mmap view
-            X_in = mmap_data[window_start : window_start + self.t_in]
-            Y_out = mmap_data[
-                window_start + self.t_in : window_start + self.t_in + self.t_out
-            ]
+            t_end = window_start + self.t_in
+            y_end_t = window_start + self.t_in + self.t_out
+            if y_start is None:
+                X_in = mmap_data[window_start:t_end]
+                Y_out = mmap_data[t_end:y_end_t]
+            else:
+                win = self.window_size
+                X_in = mmap_data[window_start:t_end,
+                                 y_start:y_start + win,
+                                 x_start:x_start + win]
+                Y_out = mmap_data[t_end:y_end_t,
+                                  y_start:y_start + win,
+                                  x_start:x_start + win]
 
             # CRITICAL: copy before any modification (mmap is read-only)
             X_in = X_in.copy()
@@ -197,22 +235,50 @@ class SolarFluxDataset(Dataset):
             )
             return None
 
-        # On-the-fly normalization
-        if self.norm_params is not None:
+        # On-the-fly normalisation
+        if self.per_cube_norm is not None and file_idx in self.per_cube_norm:
+            stats = self.per_cube_norm[file_idx]
+            mu = stats["mu"]
+            sigma = stats["sigma"]
+            if self.norm_method == "signed_asinh":
+                softening = stats.get("softening",
+                                      self.norm_params.get("softening", 1.0)
+                                      if self.norm_params else 1.0)
+                scale = stats.get("scale", sigma)
+                X_in = np.sign(X_in) * np.arcsinh(np.abs(X_in) / softening) / scale
+                Y_out = np.sign(Y_out) * np.arcsinh(np.abs(Y_out) / softening) / scale
+            else:
+                # zscore_per_cube
+                X_in = (X_in - mu) / sigma
+                Y_out = (Y_out - mu) / sigma
+        elif self.norm_params is not None:
             if self.norm_method == "asinh":
                 softening = self.norm_params["asinh_softening"]
                 scale = self.norm_params["scale"]
                 X_in = np.arcsinh(X_in / softening) / scale
                 Y_out = np.arcsinh(Y_out / softening) / scale
+            elif self.norm_method == "zscore_per_cube":
+                # Fallback for val/test cubes: harp_loader populates
+                # norm_params with the global (train-only) mu/sigma.
+                mu = self.norm_params["mu"]
+                sigma = self.norm_params["sigma"]
+                X_in = (X_in - mu) / sigma
+                Y_out = (Y_out - mu) / sigma
+            elif self.norm_method == "signed_asinh":
+                softening = self.norm_params.get("softening", 1.0)
+                scale = self.norm_params.get("scale", self.norm_params.get("sigma", 1.0))
+                X_in = np.sign(X_in) * np.arcsinh(np.abs(X_in) / softening) / scale
+                Y_out = np.sign(Y_out) * np.arcsinh(np.abs(Y_out) / softening) / scale
             else:
                 center = self.norm_params["center"]
                 scale = self.norm_params["scale"]
                 X_in = (X_in - center) / scale
                 Y_out = (Y_out - center) / scale
 
-        # Deterministic augmentation
-        X_in = self._apply_augmentation(X_in, aug_type)
-        Y_out = self._apply_augmentation(Y_out, aug_type)
+        # Deterministic augmentation (sign-flip on chirality-flipping ops
+        # when is_pseudoscalar is set, per V5 §11.4)
+        X_in = self._apply_augmentation(X_in, aug_type, self.is_pseudoscalar)
+        Y_out = self._apply_augmentation(Y_out, aug_type, self.is_pseudoscalar)
 
         # Dual-channel extreme indicator
         if self.dual_channel and self.extreme_threshold is not None:
@@ -322,5 +388,112 @@ def build_index(
             for aug in aug_codes:
                 index.append((file_idx, window_start, aug))
                 flare_flags.append(is_flare)
+
+    return index, flare_flags
+
+
+def _spatial_window_starts(extent: int, win: int, stride: int) -> List[int]:
+    """Return window start positions over [0, extent) covering full extent.
+
+    Stride < win produces overlapping windows. When ``(extent - win) % stride
+    != 0``, an extra flush-right window at ``extent - win`` is appended so the
+    boundary is covered without zero-padding leakage.
+    """
+    if extent < win:
+        return []
+    starts = list(range(0, extent - win + 1, stride))
+    if starts[-1] != extent - win:
+        starts.append(extent - win)
+    return starts
+
+
+def build_spatial_index(
+    file_paths: List[str],
+    file_assignments: Dict[str, List[int]],
+    t_in: int,
+    t_out: int,
+    window_size: int,
+    t_stride: int = 1,
+    s_stride: Optional[int] = None,
+    augmentation: str = "none",
+    split: str = "train",
+    extreme_threshold: Optional[float] = None,
+    flare_density_threshold: float = 0.02,
+) -> Tuple[List[Tuple[int, int, int, int, int]], List[bool]]:
+    """Build a precomputed 5-tuple sample index with spatial sliding window.
+
+    Each entry is ``(file_idx, t_start, y_start, x_start, aug_type)``. Window
+    is square (``window_size × window_size``) so D4 rotations are legal.
+    ``s_stride`` defaults to ``window_size // 2`` (50% overlap).
+
+    Cubes whose smaller spatial axis is below ``window_size`` are skipped
+    with a warning — train at the resolution you can support.
+
+    Args:
+        file_paths: Ordered list of densified cube ``.npy`` paths.
+        file_assignments: Mapping split → list of file indices.
+        t_in, t_out: Window temporal lengths.
+        window_size: Spatial window side. Must be ``> 0``.
+        t_stride: Temporal step between consecutive windows.
+        s_stride: Spatial step. Defaults to ``window_size // 2``.
+        augmentation, split, extreme_threshold, flare_density_threshold:
+            Same as :func:`build_index`.
+
+    Returns:
+        ``(index, flare_flags)``.
+    """
+    if window_size is None or window_size <= 0:
+        raise ValueError("window_size must be a positive integer")
+    if s_stride is None:
+        s_stride = max(1, window_size // 2)
+
+    if split == "train" and augmentation == "balanced":
+        aug_codes = _BALANCED_AUGS
+    elif split == "train" and augmentation == "aggressive":
+        aug_codes = _AGGRESSIVE_AUGS
+    else:
+        aug_codes = [AUG_NONE]
+
+    index: List[Tuple[int, int, int, int, int]] = []
+    flare_flags: List[bool] = []
+
+    for file_idx in file_assignments.get(split, []):
+        mmap = np.load(file_paths[file_idx], mmap_mode="r")
+        T, H, W = mmap.shape
+        max_t_start = T - t_in - t_out + 1
+        if max_t_start <= 0:
+            logger.warning(
+                "File %s has only %d timesteps, need %d; skipping.",
+                file_paths[file_idx], T, t_in + t_out,
+            )
+            continue
+        if min(H, W) < window_size:
+            logger.warning(
+                "File %s has shape (%d, %d) smaller than window_size=%d; "
+                "skipping.",
+                file_paths[file_idx], H, W, window_size,
+            )
+            continue
+
+        y_starts = _spatial_window_starts(H, window_size, s_stride)
+        x_starts = _spatial_window_starts(W, window_size, s_stride)
+
+        for t_start in range(0, max_t_start, t_stride):
+            if extreme_threshold is not None:
+                out_frames = mmap[t_start + t_in:t_start + t_in + t_out]
+            for y in y_starts:
+                for x in x_starts:
+                    if extreme_threshold is not None:
+                        tile = out_frames[:, y:y + window_size,
+                                          x:x + window_size]
+                        extreme_pixels = np.abs(tile) > extreme_threshold
+                        is_flare = bool(
+                            extreme_pixels.mean() > flare_density_threshold
+                        )
+                    else:
+                        is_flare = False
+                    for aug in aug_codes:
+                        index.append((file_idx, t_start, y, x, aug))
+                        flare_flags.append(is_flare)
 
     return index, flare_flags

@@ -15,3 +15,7 @@ from .loader import (
     create_dataloaders,
     assign_files_to_splits,
 )
+from .harp_loader import (
+    load_harp_zarr_data,
+    WIND_FLUX_CLIP,
+)

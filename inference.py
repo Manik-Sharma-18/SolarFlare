@@ -24,7 +24,7 @@ import yaml
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from models import SolarFluxPredictor
+from models import build_forecaster
 from utils.device import resolve_device
 from utils.checkpoint import load_checkpoint_for_inference
 
@@ -49,20 +49,7 @@ def load_model(checkpoint_path: str, config: dict, device: torch.device = None):
     model_cfg = config.get('model', {})
     data_cfg = config.get('data', {})
 
-    model = SolarFluxPredictor(
-        input_channels=model_cfg.get('input_channels', 2),
-        output_channels=model_cfg.get('output_channels', 1),
-        t_out=data_cfg.get('t_out', 4),
-        channels=model_cfg.get('channels', [32, 64, 128]),
-        kernel_size=model_cfg.get('kernel_size', 5),
-        downsample_input=model_cfg.get('downsample_input', True),
-        use_checkpointing=False,  # Not needed for inference
-        dropout_rate=model_cfg.get('dropout_rate', 0.0),
-        use_sa_convlstm=model_cfg.get('use_sa_convlstm', False),
-        temporal_attention=model_cfg.get('temporal_attention', False),
-        attention_gate=model_cfg.get('attention_gate', False),
-        delta_scale_init=model_cfg.get('delta_scale_init', 0.0),
-    )
+    model = build_forecaster(model_cfg, data_cfg.get('t_out', 4))
 
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
@@ -70,12 +57,18 @@ def load_model(checkpoint_path: str, config: dict, device: torch.device = None):
 
     normalization_params = checkpoint.get('normalization_params', {})
 
+    kind = model_cfg.get('kind', 'solar_flux')
     print(f"Loaded model from epoch {checkpoint['epoch']}")
     if checkpoint.get('best_val_loss') is not None:
         print(f"  Best val loss: {checkpoint['best_val_loss']:.6f}")
-    print(f"  Architecture: SA-ConvLSTM={model_cfg.get('use_sa_convlstm', False)}, "
-          f"channels={model_cfg.get('channels')}, "
-          f"input_channels={model_cfg.get('input_channels', 2)}")
+    if kind == 'simple_convlstm':
+        print(f"  Architecture: SimpleConvLSTM, hidden={model_cfg.get('hidden_dim', 64)}, "
+              f"layers={model_cfg.get('num_layers', 2)}, "
+              f"input_channels={model_cfg.get('input_channels', 1)}")
+    else:
+        print(f"  Architecture: SA-ConvLSTM={model_cfg.get('use_sa_convlstm', False)}, "
+              f"channels={model_cfg.get('channels')}, "
+              f"input_channels={model_cfg.get('input_channels', 2)}")
 
     return model, normalization_params, device
 
@@ -180,7 +173,7 @@ def prepare_input(
 
 
 def predict(
-    model: SolarFluxPredictor,
+    model: torch.nn.Module,
     input_tensor: torch.Tensor,
     device: torch.device = None,
 ) -> np.ndarray:
@@ -205,6 +198,70 @@ def predict(
 
     # Return flux channel only: (T_out, H, W)
     return predictions[0, 0].cpu().numpy()
+
+
+def infer_full_frame(
+    model: torch.nn.Module,
+    input_tensor: torch.Tensor,
+    window_size: int,
+    stride: int = None,
+    device: torch.device = None,
+) -> np.ndarray:
+    """Tile-and-aggregate inference for a full-resolution frame.
+
+    Slides a ``window_size × window_size`` spatial window over the input
+    with overlap ``stride`` (default ``window_size // 2``), runs the model
+    on each tile, and averages predictions across overlapping pixels.
+    Companion to the training-time sliding-window dataset; restores a
+    full-resolution prediction at test time.
+
+    Args:
+        model: Loaded ``SolarFluxPredictor`` in eval mode.
+        input_tensor: ``(1, C, T_in, H, W)`` — full-resolution input.
+        window_size: Spatial window side; must match training.
+        stride: Spatial stride between window starts. Defaults to
+            ``window_size // 2``.
+        device: Inference device (inferred from model when ``None``).
+
+    Returns:
+        ``(T_out, H, W)`` numpy float array, mean-aggregated over overlaps.
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    if stride is None:
+        stride = max(1, window_size // 2)
+
+    _, _, T_in, H, W = input_tensor.shape
+    t_out = getattr(model, "t_out", 4)
+
+    def _starts(extent):
+        if extent < window_size:
+            raise ValueError(
+                f"Input extent {extent} < window_size {window_size}"
+            )
+        s = list(range(0, extent - window_size + 1, stride))
+        if s[-1] != extent - window_size:
+            s.append(extent - window_size)
+        return s
+
+    y_starts = _starts(H)
+    x_starts = _starts(W)
+
+    accum = np.zeros((t_out, H, W), dtype=np.float64)
+    count = np.zeros((H, W), dtype=np.float64)
+
+    with torch.no_grad():
+        for y in y_starts:
+            for x in x_starts:
+                tile = input_tensor[:, :, :, y:y + window_size,
+                                    x:x + window_size].to(device)
+                pred = model(tile, teacher_forcing_ratio=0.0)
+                tile_pred = pred[0, 0].cpu().numpy()  # (t_out, win, win)
+                accum[:, y:y + window_size, x:x + window_size] += tile_pred
+                count[y:y + window_size, x:x + window_size] += 1.0
+
+    count = np.maximum(count, 1e-9)
+    return (accum / count[None, :, :]).astype(np.float32)
 
 
 def load_raw_data(npy_path: str, t_in: int = 10, start_idx: int = 0) -> np.ndarray:

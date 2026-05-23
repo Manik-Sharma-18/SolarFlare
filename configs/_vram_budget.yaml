@@ -1,0 +1,21 @@
+# VRAM budgets in MiB — peak usage estimate per config.
+# Used by scripts/launch_slot.sh audit_vram (5060ti_cuda only).
+# Rule: free_mib >= budget × (1 + SF_VRAM_BUFFER_PCT/100). Default buffer 40%.
+# Key = basename of yaml without extension.
+# Calibrate by watching nvidia-smi during a run; pad +20% for transient peaks.
+
+# V4 ConvLSTM production configs.
+# channels=[32,64,128], k=5, sa_convlstm=true, temporal_attn+attn_gate=true,
+# window=128, batch=1, AMP on. Pre-smoke estimate ~7000 MiB; tune after first run.
+finetune_winding_flux: 7000
+pretrain_magnetogram: 7000
+
+# Smoke test — same arch as production but 1 cube, 1 epoch.
+smoke_5060ti: 7000
+
+# Minimal 2-layer SimpleConvLSTM: 1ch, hidden64, window64, batch8, no AMP.
+# ~0.9M params at 64x64 — tiny. Estimate ~1500 MiB; tune after first run.
+S0_simple_convlstm: 1500
+
+# Fallback when config not in table.
+default: 4000

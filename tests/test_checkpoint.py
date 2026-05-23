@@ -20,7 +20,6 @@ def _make_tiny_model(channels=None):
         t_out=2,
         channels=channels,
         kernel_size=3,
-        downsample_input=True,
         use_checkpointing=False,
         dropout_rate=0.0,
     )

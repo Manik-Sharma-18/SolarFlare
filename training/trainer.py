@@ -104,6 +104,9 @@ def train_epoch(
     total_loss = 0.0
     valid_batches = 0
     consecutive_nan_count = 0
+    grad_norm_sum = 0.0
+    grad_norm_max = 0.0
+    grad_steps = 0
 
     # Default to L1 loss if none provided
     if loss_fn is None:
@@ -163,6 +166,11 @@ def train_epoch(
 
         # Gradient norm monitoring — clip_grad_norm_ returns the total norm before clipping
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        gn_val = float(total_norm)
+        if gn_val == gn_val:  # not NaN
+            grad_norm_sum += gn_val
+            grad_norm_max = max(grad_norm_max, gn_val)
+            grad_steps += 1
         if total_norm > grad_norm_warning_threshold:
             logger.warning(
                 "High gradient norm: %.2f (threshold: %.2f). Epoch %d, batch %d.",
@@ -186,6 +194,12 @@ def train_epoch(
     avg_components = None
     if use_component_tracking and valid_batches > 0:
         avg_components = {key: component_sums[key] / valid_batches for key in component_keys}
+    if grad_steps > 0:
+        avg_grad_norm = grad_norm_sum / grad_steps
+        print(
+            f"  Grad norm  mean={avg_grad_norm:.4f}  max={grad_norm_max:.4f}  "
+            f"clip={grad_clip}"
+        )
     return avg_loss, consecutive_nan_count, avg_components
 
 

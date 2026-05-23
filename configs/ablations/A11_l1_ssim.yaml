@@ -1,0 +1,96 @@
+# Ablation A11_l1_ssim
+# Two-term loss diagnostic: L1 + SSIM only. Drops WeightedMAE, AsymmetricExtreme,
+# temporal_diff, temporal_var. Tests whether A0 plateau is loss-conflict driven.
+# Also: delta_scale_init 0.5 -> 1.0 (full head gradient), grad_clip 0.5 -> 1.0,
+# constant LR (cosine over 10 ep was too aggressive), weight_decay 0.
+
+device: auto
+seed: 42
+transfer_learning: null
+resume_from: null
+data:
+  loader: harp_zarr
+  data_dir: ./data
+  t_in: 10
+  t_out: 4
+  augmentation: balanced
+  stride: 4
+  split_ratios:
+  - 0.7
+  - 0.2
+  - 0.1
+  dual_channel: true
+  num_workers: 4
+  window_size: 128
+  window_stride: 128
+  clip: 1.0e8
+  flare_oversample_weight: 5.0
+  flare_density_threshold: 0.005
+normalization:
+  method: zscore_per_cube
+  signed_asinh_softening: 1.0e6
+  extreme_threshold_percentile: 99
+model:
+  input_channels: 2
+  output_channels: 1
+  channels:                   # was [32,64,128] — 4x param cut
+  - 16
+  - 32
+  - 64
+  kernel_size: 3              # was 5 — 2.78x conv FLOP cut
+  use_checkpointing: false
+  dropout_rate: 0.15
+  use_sa_convlstm: true
+  delta_scale_init: 1.0       # was 0.5 — full head gradient at init
+  attention_gate: true
+  temporal_attention: true
+  compile: true
+training:
+  batch_size: 8               # was 4 — smaller model leaves VRAM headroom
+  epochs: 10
+  lr: 0.0001
+  weight_decay: 0.0           # was 1e-5
+  tf_start: 0.0
+  patience: 18
+  use_amp: true
+  grad_clip: 1.0              # was 0.5 — less aggressive
+  scheduler:
+    type: constant            # was cosine — too short at 10 ep
+loss:
+  type: composite
+  l1_weight: 1.0
+  ssim_weight: 0.3
+  extreme_weight: 0.0         # disabled
+  extreme_pixel_weight: 1.0
+  use_ms_ssim: false
+  ssim_data_range: 2.0
+  ssim_tiling_threshold: 256
+  temporal_diff_weight: 0.0   # disabled
+  temporal_var_lambda: 0.0    # disabled
+  temporal_weights:
+  - 1.0
+  - 1.5
+  - 2.0
+  - 2.5
+  asymmetric_weight: 0.0      # disabled
+  asymmetric_alpha: 5.0
+  extreme_threshold: 0.528
+evaluation:
+  extreme_threshold: 0.528
+  verbose_metrics: false
+output:
+  save_dir: ./outputs/ablations/A11_l1_ssim
+  checkpoint_name: best_model.pt
+  save_history: true
+  save_visualizations: true
+logging:
+  progress_bar: true
+  log_interval: 10
+error_handling:
+  max_consecutive_nan: 10
+  grad_norm_warning_threshold: 100.0
+  data_failure_threshold: 0.1
+uncertainty:
+  enabled: false
+  n_samples: 20
+  save_uncertainty_maps: true

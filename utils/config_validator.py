@@ -199,6 +199,8 @@ def validate_config(config: dict) -> None:
     if not isinstance(model, dict):
         errors.append("'model' section is required and must be a mapping")
     else:
+        kind = model.get("kind", "solar_flux")
+
         # input_channels
         ic = model.get("input_channels")
         if ic is None:
@@ -207,16 +209,25 @@ def validate_config(config: dict) -> None:
             if ic <= 0:
                 errors.append(f"'model.input_channels' must be positive, got {ic}")
 
-        # channels list
-        channels = model.get("channels")
-        if channels is None:
-            errors.append("'model.channels' is required")
-        elif not isinstance(channels, list) or len(channels) < 1:
-            errors.append("'model.channels' must be a list of positive ints with length >= 1")
+        # channels list — only the deep SolarFluxPredictor uses a channel
+        # pyramid. SimpleConvLSTM has a flat hidden_dim instead.
+        if kind == "simple_convlstm":
+            hd = model.get("hidden_dim")
+            if hd is not None and (not isinstance(hd, int) or hd <= 0):
+                errors.append(f"'model.hidden_dim' must be a positive int, got {hd!r}")
+            nl = model.get("num_layers")
+            if nl is not None and (not isinstance(nl, int) or nl <= 0):
+                errors.append(f"'model.num_layers' must be a positive int, got {nl!r}")
         else:
-            for i, ch in enumerate(channels):
-                if not isinstance(ch, int) or ch <= 0:
-                    errors.append(f"'model.channels[{i}]' must be a positive int, got {ch!r}")
+            channels = model.get("channels")
+            if channels is None:
+                errors.append("'model.channels' is required")
+            elif not isinstance(channels, list) or len(channels) < 1:
+                errors.append("'model.channels' must be a list of positive ints with length >= 1")
+            else:
+                for i, ch in enumerate(channels):
+                    if not isinstance(ch, int) or ch <= 0:
+                        errors.append(f"'model.channels[{i}]' must be a positive int, got {ch!r}")
 
         # kernel_size
         ks = model.get("kernel_size")
@@ -403,7 +414,7 @@ def validate_config(config: dict) -> None:
     norm = config.get("normalization")
     if isinstance(norm, dict):
         nmethod = norm.get("method")
-        valid_norm = ("asinh", "robust", "fixed")
+        valid_norm = ("asinh", "robust", "fixed", "zscore_per_cube", "signed_asinh")
         if nmethod is not None and nmethod not in valid_norm:
             errors.append(f"'normalization.method' must be one of {valid_norm}, got '{nmethod}'")
 

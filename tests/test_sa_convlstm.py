@@ -17,21 +17,21 @@ T = 3
 @pytest.fixture
 def sam():
     """Create a SelfAttentionMemory module."""
-    from models.sa_convlstm import SelfAttentionMemory
+    from models import SelfAttentionMemory
     return SelfAttentionMemory(hidden_dim=HIDDEN_DIM, attn_dim=ATTN_DIM)
 
 
 @pytest.fixture
 def sa_cell():
     """Create an SAConvLSTMCell."""
-    from models.sa_convlstm import SAConvLSTMCell
+    from models import SAConvLSTMCell
     return SAConvLSTMCell(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM, kernel_size=KERNEL_SIZE)
 
 
 @pytest.fixture
 def sa_convlstm():
     """Create an SAConvLSTM wrapper."""
-    from models.sa_convlstm import SAConvLSTM
+    from models import SAConvLSTM
     return SAConvLSTM(input_dim=INPUT_DIM, hidden_dim=HIDDEN_DIM, kernel_size=KERNEL_SIZE)
 
 
@@ -104,7 +104,7 @@ class TestSAConvLSTMCell:
 
     def test_composition_pattern(self, sa_cell):
         """SAConvLSTMCell wraps ConvLSTMCell via composition."""
-        from models.convlstm import ConvLSTMCell
+        from models import ConvLSTMCell
         assert hasattr(sa_cell, "convlstm_cell")
         assert isinstance(sa_cell.convlstm_cell, ConvLSTMCell)
 

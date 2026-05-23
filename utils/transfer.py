@@ -15,8 +15,6 @@ logger = logging.getLogger(__name__)
 INPUT_DEPENDENT_PREFIXES = (
     'preprocess.',
     'decoder_input_conv.',
-    'input_down.',   # only exists when downsample_input=True
-    'input_up.',     # only exists when downsample_input=True
 )
 
 # Encoder layers to freeze during fine-tuning
