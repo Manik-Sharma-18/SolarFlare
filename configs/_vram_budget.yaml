@@ -13,9 +13,11 @@ pretrain_magnetogram: 7000
 # Smoke test — same arch as production but 1 cube, 1 epoch.
 smoke_5060ti: 7000
 
-# Minimal 2-layer SimpleConvLSTM: 1ch, hidden64, window64, batch8, no AMP.
+# Minimal 2-layer SimpleConvLSTM: 1ch, hidden64, window64, batch8, no AMP, no aug.
 # ~0.9M params at 64x64 — tiny. Estimate ~1500 MiB; tune after first run.
 S0_simple_convlstm: 1500
+# Same model as S0, 4 epochs — identical VRAM footprint.
+S1_simple_convlstm_noaug: 1500
 
 # Fallback when config not in table.
 default: 4000

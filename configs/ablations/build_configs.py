@@ -76,16 +76,27 @@ def _mut_simple_convlstm(cfg):
         "kernel_size": 3,
     }
     cfg["data"]["dual_channel"] = False        # flux only
+    cfg["data"]["augmentation"] = "none"       # no D4 aug — fewer windows, faster epoch
     cfg["data"]["window_size"] = 64            # Keras-scale frames, lighter MPS step
     cfg["data"]["window_stride"] = 64          # no overlap → fewer windows
     cfg["loss"] = {"type": "l1"}               # one term, no weights to tune
     cfg["training"]["use_amp"] = False         # MPS DummyGradScaler caused NaN-skip spam
-    cfg["training"]["batch_size"] = 8
+    cfg["training"]["batch_size"] = 8          # batch32 was only ~8% faster (ConvLSTM is step-bound)
+                                               # but 4x fewer grad steps → slower convergence; not worth it
     cfg["training"]["lr"] = 1.0e-3             # canonical Adam LR for ConvLSTM
     cfg["training"]["epochs"] = 15
     cfg["training"]["patience"] = 6
     cfg["evaluation"] = {"extreme_threshold": cfg.get("evaluation", {}).get("extreme_threshold", 0.528),
                          "verbose_metrics": False}
+
+def _mut_simple_convlstm_noaug(cfg):
+    # S0 minus augmentation, same 0.7/0.2/0.1 split (apples-to-apples vs S0).
+    # balanced=[none,hflip,vflip] (3x) → no-aug cuts train windows ~3x:
+    # ~20.5k iters/epoch @ batch8 → ~44 min/epoch on CUDA. 4 epochs ⇒ ~3h.
+    _mut_simple_convlstm(cfg)
+    cfg["data"]["augmentation"] = "none"
+    cfg["training"]["epochs"] = 4
+    cfg["training"]["patience"] = 4   # >= epochs ⇒ early-stop won't fire
 
 
 ARMS = [
@@ -102,6 +113,7 @@ ARMS = [
     ("A10_aug_aggressive", "all 6 D4 augmentations incl rotations (chirality-aware sign flips)", _mut_aug_aggressive),
     ("B0_convlstm_pure",   "pure ConvLSTM: all 3 attention add-ons off (SA + tempattn + attngate), delta_scale + dropout kept", _mut_convlstm_pure),
     ("S0_simple_convlstm", "minimal 2-layer SimpleConvLSTM, 1ch flux, hidden64 k3, L1, no AMP — canonical nowcasting baseline", _mut_simple_convlstm),
+    ("S1_simple_convlstm_noaug", "S0 minus augmentation, 4 epochs (~3h on CUDA) — isolates the value of D4 augmentation", _mut_simple_convlstm_noaug),
 ]
 
 
@@ -158,6 +170,7 @@ def main():
         "A10_aug_aggressive": "rotations + chirality flip improve generalisation?",
         "B0_convlstm_pure": "does pure ConvLSTM beat the full attention stack? (clean arch-only A0 vs B0; NOT the v2/v3 11-02 number — that compared different pipelines/epochs)",
         "S0_simple_convlstm": "can a minimal 2-layer ConvLSTM (canonical recipe) match the deep model? simplest viable baseline",
+        "S1_simple_convlstm_noaug": "does D4 augmentation help the simple model? S0 vs S1 (no-aug, 4ep, ~3h)",
     }
     for arm_id, desc in rows:
         lines.append(f"| `{arm_id}` | {desc} | {tests_per_arm.get(arm_id, '?')} |")
