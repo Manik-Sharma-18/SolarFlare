@@ -58,6 +58,7 @@ def _build_datasets(config: Dict[str, Any]) -> Tuple[Any, Any, Any, Dict[str, An
             clip=float(data_cfg.get("clip", 1e8)),
             window_size=data_cfg.get("window_size"),
             window_stride=data_cfg.get("window_stride"),
+            test_cubes=data_cfg.get("test_cubes"),
             **common,
         )
     if data_cfg.get("use_preprocessed", False):

@@ -351,6 +351,44 @@ def assign_files_to_splits(
     return assignments
 
 
+def assign_files_with_fixed_test(
+    file_paths: List[Path],
+    test_ids: List[str],
+    split_ratios: List[float],
+    seed: int,
+) -> Dict[str, List[int]]:
+    """Deterministic test set: cubes whose stem is in ``test_ids`` → test.
+
+    The remaining cubes are shuffled (seeded) and split into train/val by the
+    train:val ratio carried in ``split_ratios`` ([train, test, val]; the test
+    fraction is ignored since the test set is fixed by id). Used to pin an
+    informative, comparable test set across ablation arms instead of a
+    split-luck single cube — see ``data/_extreme_rate_per_cube.json``.
+    """
+    want = set(test_ids)
+    stems = [p.stem if hasattr(p, "stem") else str(p) for p in file_paths]
+    test_idx = [i for i, s in enumerate(stems) if s in want]
+    missing = want - {stems[i] for i in test_idx}
+    if missing:
+        raise ValueError(f"test_cubes not found among loaded cubes: {sorted(missing)}")
+    rest = [i for i in range(len(file_paths)) if i not in set(test_idx)]
+    rng = stdlib_random.Random(seed)
+    rng.shuffle(rest)
+    tv = split_ratios[0] + split_ratios[2]  # train + val weight (test fixed)
+    n_train = round(len(rest) * (split_ratios[0] / tv)) if tv > 0 else len(rest)
+    assignments = {
+        "train": rest[:n_train],
+        "val": rest[n_train:],
+        "test": test_idx,
+    }
+    logger.info(
+        "Fixed-test split (seed=%d): train=%d, val=%d, test=%d (ids=%s)",
+        seed, len(assignments["train"]), len(assignments["val"]),
+        len(test_idx), sorted(want),
+    )
+    return assignments
+
+
 # ---------------------------------------------------------------------------
 # Public data loading functions
 # ---------------------------------------------------------------------------

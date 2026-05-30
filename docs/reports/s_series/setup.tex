@@ -1,0 +1,42 @@
+\section{Cross-arm parameter matrix}
+
+The S-series is a single-axis-at-a-time sweep starting from the
+minimal baseline S0. The table below is the chronological list of arms
+included in this report; each row notes only the delta against the
+preceding arm.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{l l l}
+\toprule
+Arm & Delta vs.\ prior & Question being asked \\
+\midrule
+\rowcolor{tabhdr}S0 & baseline (L1, D4 aug)              & Does the 2-layer ConvLSTM by itself match the 6-layer attention model? \\
+S2 & + residual decode                                  & Does \(w_t = w_{t-1} + \Delta\) anchor predictions to persistence? \\
+\rowcolor{tabhdr}S4 & S2 + teacher-forcing (\(\tau{:}1\!\to\!0\)) & Does TF cure autoregressive explosion of S2? \\
+S5 & S4 + 90/5/5 split + GroupNorm                       & Does more data lift CSI? \\
+\rowcolor{tabhdr}S3 & S5 + 6-term composite loss          & Does kitchen-sink loss break L1 mean-collapse? \\
+S6 & S5 + \texttt{extreme\_pixel\_weight}{=}25 only      & Which composite term drove S3? \\
+\rowcolor{tabhdr}S8 & S5 on fixed test cubes (L1)         & Recalibrate against persistence on a fixed evaluation set. \\
+S7 & S8 + signed-asinh normalisation                    & Does heavy-tail compression help CSI? \\
+\rowcolor{tabhdr}S9 & S8 + BatchNorm (was S4's setting)   & Is BatchNorm the source of S4 ``sharpness''? \\
+S10 & S8 + \texttt{tf\_decay\_epochs}{=}5 + patience 8    & Does a complete TF curriculum help? \\
+\rowcolor{tabhdr}S11 & S10 + extreme\_pixel\_weight 25    & Both working levers stacked --- does the combo beat persistence? \\
+\midrule
+\multicolumn{3}{l}{\textit{Dual-head architecture pivot (classifier head added; constant LR from S16).}}\\
+\midrule
+\rowcolor{tabhdr}S13 & dual-head, \(\alpha{=}1, \beta{=}1\), \texttt{pos\_weight}{=}100 & Does an explicit per-pixel BCE classifier escape regression mean-collapse? \\
+S14 & S13 + focal loss (\(\gamma{=}2, \alpha_f{=}0.25\)) & Does focal weighting outperform pos\_weight BCE? \\
+\rowcolor{tabhdr}S15 & S13 + \(\alpha{=}0.1\) (regression-dominated $\to$ classifier-dominated) & Does starving the regression head free capacity for the classifier? \\
+S16 & S13 with \texttt{pos\_weight}{=}60 + \texttt{extreme\_pixel\_weight}{=}25 & Joint train of S11 regression lever \(+\) S13 classifier head. \\
+\bottomrule
+\end{tabular}
+\caption{Chronological sweep. S1 (no-aug), S12 (cosine-LR dual-head),
+S17 (post-hoc inference combo, no training) discussed where relevant
+in the text. S18+ excluded from this report.}
+\end{table}
+
+All arms terminated after 15 epochs (or earlier on patience). All
+metrics reported below are on the fixed test set
+\{HARP 245, 274, 49\} unless otherwise noted; figures show
+HARP 11930 (\emph{train} cube, qualitative only).

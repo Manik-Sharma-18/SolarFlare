@@ -72,7 +72,11 @@ def run_training(config: Dict[str, Any]) -> None:
     print("=" * 60)
     best_ckpt = output_dir / "checkpoints" / "best_model.pt"
     ckpt = load_checkpoint(best_ckpt)
-    model.load_state_dict(ckpt["model_state_dict"])
+    # Checkpoints store bare keys; torch.compile wraps the model as
+    # OptimizedModule (keys gain a "_orig_mod." prefix). Load into the
+    # underlying module so reload works whether or not the model is compiled.
+    load_target = getattr(model, "_orig_mod", model)
+    load_target.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
     output_channels = config["model"].get("output_channels", 1)

@@ -1,0 +1,98 @@
+\section{Dual-head pivot (S13--S16)}\label{sec:s13}
+
+Pivot rationale: the extreme-mask CSI is a thresholded binary, but
+S0--S11 train a regression loss on amplitude. Mismatch fixed by
+adding a parallel per-pixel BCE classifier head on the same ConvLSTM
+trunk:
+\(
+\hat w(\mathbf{x},t),\ \ell(\mathbf{x},t)
+= \text{ConvLSTM}(\mathbf{w}_{1:T_{\text{in}}})
+\),
+with training loss
+\(
+\mathcal{L} = \alpha\,\mathcal{L}_{\text{(w)MAE}}(\hat w, w)
+            + \beta\,\mathcal{L}_{\text{BCE}}(\ell, \mathbb{1}_{|w|>\tau}; \texttt{pos\_weight}{=}p)
+\).
+At test time we report both \textbf{regression CSI} (CSI on
+\(\hat w\)) and \textbf{CLS-CSI} (CSI on \(\sigma(\ell)>0.5\)).
+\textbf{Constant LR \(\eta=10^{-3}\)} (no cosine) from S16 onwards
+after observing cosine washes out late-epoch gradient signal at our
+short 15-epoch schedule.
+
+\textit{S12 (cosine LR rerun) and S15 (classifier-dominant
+\(\alpha{=}0.1\)) below either confirmed expected behaviour or did not
+finish on the planned slot and are summarised in text only.}
+
+\subsection{S13 --- first to match persistence}
+\textbf{Loss:} \(\alpha{=}1,\beta{=}1,p{=}100\), plain L1 on
+regression head. \textbf{LR:} constant
+\(10^{-3}\). \textbf{15 epochs.}\\
+\textbf{Test:} \textbf{CLS-CSI 0.0434, HSS 0.0749} (matches
+persistence 0.043); regression CSI 0.0090 (dead --- \(p{=}100\)
+starves L1 budget). Persistence skill +35.7\%. Val loss
+0.164\(\to\)0.149 monotone-ish; val CLS-CSI 0.003\(\to\)0.007.\\
+\textbf{Finding:} \emph{First} S-arm to match persistence on the
+extreme mask. The classifier head is the load-bearing
+component; the regression head exists mainly to provide a spatial
+backbone for the classifier features.
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s13_harp11930_fullframe}
+
+\subsection{S14 --- focal loss is the wrong instrument}
+\textbf{Loss:} same as S13 but BCE \(\to\) focal
+\(\bigl(-\alpha_f(1-p)^\gamma\log p\bigr)\),
+\(\gamma{=}2,\alpha_f{=}0.25\), \(p{=}60\).\\
+\textbf{Test:} \textbf{CLS-CSI 0 every epoch.} Best val 0.0072 ep10
+(focal numeric scale is just small, not a learning signal). Regression
+SSIM 0.79--0.91, same as S0--S11.\\
+\textbf{Finding:} Focal's \((1-p)^\gamma\) factor over-suppresses
+gradients on the rare positives at our \(\sim\)0.1\% imbalance level.
+The classifier never gets enough signal to leave its initialisation.
+\textbf{Focal rejected for this task.} (Figure omitted --- the
+regression head produces the same pattern as S0--S11; the classifier is
+dead.)
+
+\subsection{S15 --- classifier-dominant (\(\alpha=0.1\))}
+\textbf{Loss:} \(\alpha{=}0.1, \beta{=}1, p{=}60\). Idea: starve the
+regression head to free capacity for the classifier.\\
+\textbf{Test:} CLS-CSI 0.0445 (\(\approx\) S13's 0.0434, no lift);
+regression CSI 0.0184 (above S13's 0.0090 --- the small regression
+weight still produces a useful head, somewhat counter-intuitively).\\
+\textbf{Finding:} Lowering \(\alpha\) does \emph{not} buy classifier
+gain. Confirms classifier head saturates above some \(\beta\)
+threshold and the remaining headroom is on the regression side, not
+classifier capacity. Recipe pointer for the winning hybrid (S16).
+
+\subsection{S16 --- joint hybrid: weighted-MAE + classifier}\label{sec:s16}
+\textbf{Loss:} \(\alpha{=}1, \beta{=}1, p{=}60\),
+\(\mathcal{L}_{\text{wMAE}}\) with
+\texttt{extreme\_pixel\_weight}{=}25 on the regression head
+(S11's lever) plus BCE classifier (S13's lever). Code change:
+extended \texttt{training/losses/dual\_head.py} to take an
+\texttt{extreme\_pixel\_weight} kwarg and swap
+\texttt{F.l1\_loss} for \texttt{WeightedMAELoss} when \(>1\).\\
+
+\textbf{Test:}
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+ & reg.\ CSI & \textbf{CLS-CSI} & cls HSS \\
+\midrule
+persistence  & ---     & 0.043 & 0.082 \\
+S11 (best regression)  & 0.0176 & ---    & ---    \\
+S13 (best classifier alone)  & 0.0090 & 0.0434 & 0.0749 \\
+\textbf{S16 hybrid}  & \textbf{0.0255} & \textbf{0.0562} & \textbf{0.0995}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Finding:}
+S16 is the first S-arm to \emph{beat} persistence on the extreme mask
+(\(\sim\)31\% above; not just match it like S13). Regression CSI is
+2.8\(\times\) S13 and 1.4\(\times\) S11. The extreme-pixel-weighted MAE
+rescues the regression head's amplitude (briefly crosses the threshold
+ep8--9 producing nonzero reg CSI in-training) while the lighter
+\(p{=}60\) leaves enough budget for the BCE classifier to learn.
+Persistence skill 34\%, SSIM 0.69 --- comparable to S13 on auxiliary
+metrics. Hybrid hypothesis confirmed: the two heads' levers compose,
+they do not antagonise.
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s16_harp11930_fullframe}

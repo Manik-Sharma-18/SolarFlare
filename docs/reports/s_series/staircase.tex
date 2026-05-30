@@ -1,0 +1,75 @@
+\section{Multi-step autoregressive ``staircase'' diagnostic}\label{sec:cmp_intflux}
+
+Single-step CSI evaluates the model on the next 4 frames only.
+For mission-relevant lead times we need the model to chain its own
+predictions. We instantiated a staircase protocol on HARP 11930
+(\emph{train} cube, qualitative): input \(T_{\text{in}}=10\) real
+frames, predict \(T_{\text{out}}=4\), commit the first
+\texttt{stride}\(=2\) predicted frames into the input buffer, slide,
+repeat for 20 steps (i.e.\ 40 committed frames \(\equiv\) 8\,h forecast
+lead). Full-frame inference at each step (tiled, stride 64, no
+overlap). Pure autoregressive --- the model never sees a real frame
+past \(T_{\text{in}}\) after step 0.
+
+We ran the protocol on S3 (best single-step regression on this cube),
+S11 (best single-step regression on the test cubes), and S16 (new
+SOTA).
+
+\subsection*{Headline numbers}
+\begin{center}\small
+\begin{tabular}{l r r r}
+\toprule
+Arm & MAE (integrated flux) & Var.\ ratio & Drift corr.\ \(\rho\)\\
+\midrule
+S3  & \(1.5\!\times\!10^8\) & 0.028 (mode collapse)      & +0.14 \\
+S11 & \(7.6\!\times\!10^8\) & 15.8 (runaway explosion)   & +0.81 \\
+S16 & (see below)                 & ---                       & ---   \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\emph{(S16 staircase numbers are in \texttt{outputs/staircase\_s16\_harp\_11930/series.npz}; integrated-flux plot below.)}
+
+\subsection*{S3: mode collapse}
+Within 4 chained frames the predicted field amplitude drops from
+\(|\hat w|_\infty\!=\!1.3\!\times\!10^7\) to
+\(\sim\!10^5\) (100\(\times\) collapse). Frame-to-frame field
+difference settles to \(\sim\)150 on values of order \(1.5\!\times\!10^5\)
+(\(<\)0.1\% relative motion). After collapse the network produces a
+\emph{static} low-amplitude field for the remaining 36 frames. MAE
+stays low only because the static value happens to be close to the
+GT temporal mean.
+
+\noindent\includegraphics[width=0.49\linewidth]{s3_staircase_4steps}
+\includegraphics[width=0.49\linewidth]{s3_staircase_intflux}
+
+\subsection*{S11: runaway explosion}
+Behaves like S3 for the first \(\sim\)9 chained steps (low-amplitude
+collapse phase) and then \emph{variance explodes}: frame
+\(|\hat w|_\infty\) grows from \(\sim\!10^5\) to
+\(2\!\times\!10^6\) by frame 39; per-frame field difference grows from
+150 to \(\sim\)3000. The 12-step grid below makes the transition
+visible --- the bottom rows are progressively more saturated.
+Variance ratio 15.8\(\times\), drift correlation +0.81 (error grows
+strongly with horizon).
+
+\noindent\includegraphics[width=0.49\linewidth]{s11_staircase_4steps}
+\includegraphics[width=0.49\linewidth]{s11_staircase_intflux}
+
+\noindent\includegraphics[width=\linewidth]{s11_staircase_12steps}
+
+\subsection*{S16: staircase}
+\noindent\includegraphics[width=0.49\linewidth]{s16_staircase_4steps}
+\includegraphics[width=0.49\linewidth]{s16_staircase_intflux}
+
+\noindent\includegraphics[width=\linewidth]{s16_staircase_12steps}
+
+\subsection*{Verdict}
+None of S3 / S11 sustains chained prediction --- one collapses, the
+other explodes. The two failure modes are symmetric: L1-dominated
+losses converge to a stable low-amplitude fixed point, while
+amplitude-rewarding losses (S11's extreme weight + fast-TF) shift
+the autoregressive map to an unstable regime. Long-horizon
+forecasting is genuinely open; the single-step gains from S16 should
+be re-tested under chained rollouts before claiming
+multi-hour skill.

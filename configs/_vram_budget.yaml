@@ -18,6 +18,32 @@ smoke_5060ti: 7000
 S0_simple_convlstm: 1500
 # Same model as S0, 4 epochs — identical VRAM footprint.
 S1_simple_convlstm_noaug: 1500
+# S0 + residual decode — identical VRAM footprint.
+S2_simple_convlstm_residual: 1500
+# S2 + teacher forcing — identical VRAM footprint.
+S4_simple_convlstm_residual_tf: 1500
+
+# S4 on all data (GroupNorm) — same footprint.
+S5_simple_convlstm_alldata: 1500
+
+# S5 + composite loss / extreme-only ablation — same model, same footprint.
+S3_simple_convlstm_composite: 1500
+S6_simple_convlstm_extremeonly: 1500
+
+# Fixed-test control + signed_asinh — same model, same footprint.
+S8_simple_convlstm_zscore_fixedtest: 1500
+S7_simple_convlstm_signed_asinh: 1500
+# S4-on-fixed-test (BatchNorm) — same model, same footprint.
+S9_simple_convlstm_s4_fixedtest: 1500
+# Fast-TF-decay arm — same model, same footprint.
+S10_simple_convlstm_fast_tf: 1500
+# Combo: fast-TF + extreme_pixel_weight — same model, same footprint.
+S11_simple_convlstm_fasttf_extreme: 1500
+# Dual-head structural arms — adds 1x1 classifier head, negligible footprint.
+S12_simple_convlstm_dual_head: 1500
+S13_simple_convlstm_dual_posweight100: 1500
+S14_simple_convlstm_dual_focal: 1500
+S15_simple_convlstm_dual_classifier_dominant: 1500
 
 # Fallback when config not in table.
 default: 4000

@@ -40,6 +40,9 @@ def _print_summary(m: Dict[str, Any]) -> None:
     print(f"Test Loss: {m['val_loss']:.6f}")
     print(f"Test MAE per timestep: {m['val_mae_per_timestep']}")
     print(f"Test CSI: {m['val_csi']:.4f} | HSS: {m['val_hss']:.4f}")
+    if "val_csi_classifier" in m:
+        print(f"Test CSI (classifier): {m['val_csi_classifier']:.4f} | "
+              f"HSS: {m['val_hss_classifier']:.4f}")
     print(f"Test SSIM: {m['val_ssim']:.4f}")
     persist = m["persistence_skill_per_timestep"]
     avg_persist = float(np.mean(persist)) if persist else 0.0
@@ -73,5 +76,11 @@ def _write_results_json(m: Dict[str, Any], output_dir: Path) -> None:
         "peak_flux_error_per_timestep": m["peak_flux_error_per_timestep"],
         "temporal_variation_ratio": m["temporal_variation_ratio"],
     }
+    if "val_csi_classifier" in m:
+        results["test_csi_classifier"] = m["val_csi_classifier"]
+        results["test_hss_classifier"] = m["val_hss_classifier"]
+        results["test_csi_classifier_per_timestep"] = m.get(
+            "val_csi_classifier_per_timestep", []
+        )
     with open(output_dir / "test_results.json", "w") as f:
         json.dump(results, f, indent=2)

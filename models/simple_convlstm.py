@@ -41,18 +41,41 @@ class SimpleConvLSTM(nn.Module):
         hidden_dim: int = 64,
         kernel_size: int = 3,
         num_layers: int = 2,
+        residual: bool = False,
+        norm_type: str = "batch",
+        enable_classifier_head: bool = False,
     ):
         super().__init__()
         self.t_out = t_out
         self.output_channels = output_channels
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.residual = residual
+        self.norm_type = norm_type
+        self.enable_classifier_head = enable_classifier_head
 
         self.encoder_cells = self._make_stack(input_channels, hidden_dim, kernel_size, num_layers)
         self.decoder_cells = self._make_stack(output_channels, hidden_dim, kernel_size, num_layers)
-        self.enc_norms = nn.ModuleList(nn.BatchNorm2d(hidden_dim) for _ in range(num_layers))
-        self.dec_norms = nn.ModuleList(nn.BatchNorm2d(hidden_dim) for _ in range(num_layers))
+        self.enc_norms = nn.ModuleList(self._make_norm(hidden_dim) for _ in range(num_layers))
+        self.dec_norms = nn.ModuleList(self._make_norm(hidden_dim) for _ in range(num_layers))
         self.head = nn.Conv2d(hidden_dim, output_channels, kernel_size=1)
+        # Per-pixel binary "is this pixel extreme at t+k?" classifier (logits).
+        # Placed on the last decoder activation `h`, NOT on the predicted frame,
+        # so the regression and classification gradients don't fight on shared
+        # output. Used by the dual_head loss; eval CSI reads its sigmoid directly.
+        self.ext_head = (nn.Conv2d(hidden_dim, 1, kernel_size=1)
+                         if enable_classifier_head else None)
+
+    def _make_norm(self, hidden: int) -> nn.Module:
+        """Norm layer. ``group`` (GroupNorm) has no running stats, so it is
+        safe to reuse across the unrolled decode loop — ``batch`` (BatchNorm)
+        updates running stats in-place and crashes the multi-step backward
+        (autograd inplace-version error). ``batch`` kept as the default for
+        checkpoint compatibility with the S0–S4 runs."""
+        if self.norm_type == "group":
+            groups = 8 if hidden % 8 == 0 else 1
+            return nn.GroupNorm(groups, hidden)
+        return nn.BatchNorm2d(hidden)
 
     @staticmethod
     def _make_stack(in_ch: int, hidden: int, k: int, n: int) -> nn.ModuleList:
@@ -94,7 +117,9 @@ class SimpleConvLSTM(nn.Module):
 
         Args:
             x: ``(B, C, T_in, H, W)``.
-            teacher_forcing_ratio, y_true: accepted, ignored (pure AR decode).
+            teacher_forcing_ratio: per-step prob of feeding ``y_true`` during
+                training (0.0 ⇒ pure autoregressive).
+            y_true: ``(B, C, t_out, H, W)`` ground truth, used only for TF.
 
         Returns:
             ``(B, output_channels, t_out, H, W)``.
@@ -106,12 +131,33 @@ class SimpleConvLSTM(nn.Module):
 
         frame = x[:, : self.output_channels, -1]  # last flux frame
         preds = []
-        for _ in range(self.t_out):
+        ext_logits_list = [] if self.enable_classifier_head else None
+        for t in range(self.t_out):
             h, states = self._step(self.decoder_cells, self.dec_norms, frame, states)
-            frame = self.head(h)
-            preds.append(frame)
+            # Residual: predict Δ added to the previous frame, so the model
+            # falls back to persistence (Δ→0 = copy last frame) instead of
+            # collapsing to ~0. Else predict the absolute frame from scratch.
+            pred = frame + self.head(h) if self.residual else self.head(h)
+            preds.append(pred)
+            if self.enable_classifier_head:
+                ext_logits_list.append(self.ext_head(h))
+            # Teacher forcing: during training, feed the ground-truth frame
+            # as the next step's input (and residual base) with probability
+            # teacher_forcing_ratio — anchors the rollout to truth and curbs
+            # autoregressive error compounding.
+            if (self.training and y_true is not None
+                    and teacher_forcing_ratio > 0.0
+                    and torch.rand(()) < teacher_forcing_ratio):
+                frame = y_true[:, : self.output_channels, t]
+            else:
+                frame = pred
 
-        return torch.stack(preds, dim=2)
+        pred_stack = torch.stack(preds, dim=2)
+        if self.enable_classifier_head:
+            # (B, 1, t_out, H, W) logits — shape matches pred for downstream
+            # per-pixel BCEWithLogitsLoss against ``|target|>extreme_threshold``.
+            return pred_stack, torch.stack(ext_logits_list, dim=2)
+        return pred_stack
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

@@ -38,6 +38,9 @@ def build_forecaster(model_cfg: Dict[str, Any], t_out: int) -> nn.Module:
             hidden_dim=model_cfg.get("hidden_dim", 64),
             kernel_size=model_cfg.get("kernel_size", 3),
             num_layers=model_cfg.get("num_layers", 2),
+            residual=model_cfg.get("residual", False),
+            norm_type=model_cfg.get("norm_type", "batch"),
+            enable_classifier_head=model_cfg.get("enable_classifier_head", False),
         )
 
     if kind == "solar_flux":

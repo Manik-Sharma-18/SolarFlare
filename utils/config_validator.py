@@ -294,7 +294,7 @@ def validate_config(config: dict) -> None:
     loss = config.get("loss")
     if isinstance(loss, dict):
         ltype = loss.get("type")
-        valid_loss_types = ("l1", "composite", "weighted")
+        valid_loss_types = ("l1", "composite", "weighted", "dual_head")
         if ltype is not None and ltype not in valid_loss_types:
             errors.append(f"'loss.type' must be one of {valid_loss_types}, got '{ltype}'")
 

@@ -1,0 +1,52 @@
+\section{Notation \& common setup}
+
+\textbf{Task.} Given last \(T_{\text{in}}=10\) frames of winding flux
+\(w(\mathbf{x},t)\) over a SHARP cube, predict next \(T_{\text{out}}=4\)
+frames (48-min lead). All arms use the same 2-layer ConvLSTM
+(\texttt{SimpleConvLSTM}, kernel 3, hidden 64, residual decode
+\(\hat w_t = w_{t-1} + \Delta\hat w_t\), \(\sim\)0.9\,M params).
+
+\textbf{Data.} 21 SHARP cubes, 12-min cadence; \(64\!\times\!64\) crops
+stride 4; per-cube z-score normalisation (S7 alternative: signed
+\(\operatorname{asinh}\)); fixed informative test set
+\{HARP 245, 274, 49\} from S8 onwards; 0.90/0.05/0.05
+train/val/test split.
+
+\textbf{Training.} Adam, batch 8, \(\eta=10^{-3}\); 15 epochs;
+patience 8 on val loss; teacher-forcing fraction
+\(\tau\!:\!1\!\to\!0\) over first \texttt{tf\_decay\_epochs} epochs;
+gradient clip 0.5; cosine LR schedule (S0--S15) or constant (S16+);
+no augmentation in dual-head arms.
+
+\textbf{Metrics on extreme mask \(|w|>0.528\sigma\) (99th-pct):}
+\begin{itemize}[leftmargin=14pt,itemsep=1pt,topsep=2pt]
+\item \textbf{CSI} \(=\text{TP}/(\text{TP}+\text{FP}+\text{FN})\), our
+      primary skill score.
+\item \textbf{CLS-CSI} = CSI on the classifier-head sigmoid
+      \(>\!0.5\) (dual-head arms only).
+\item \textbf{Persistence baseline} predicts the most recent input
+      frame for all 4 future steps; achieves
+      \textbf{CSI 0.043, HSS 0.082} on this test set ---
+      \emph{the wall to beat}.
+\item Auxiliary: SSIM (\texttt{data\_range=2}), persistence skill
+      \(=(1-\text{MAE}_{\text{mod}}/\text{MAE}_{\text{pers}})\!\times\!100\%\),
+      variation ratio
+      \(\text{mean}|\Delta\hat w|/\text{mean}|\Delta w|\) (mode collapse if
+      \(\to 0\), runaway if \(\gg 1\)).
+\end{itemize}
+
+\textbf{Losses used across arms.}
+\begin{itemize}[leftmargin=14pt,itemsep=1pt,topsep=2pt]
+\item \(\mathcal{L}_{\text{L1}} = \langle |\hat w - w| \rangle\)
+\item \(\mathcal{L}_{\text{wMAE}} = \langle m\!\cdot\!|\hat w - w| \rangle\),
+      \(m{=}\kappa\) where \(|w|>\tau\), else 1
+      (\(\kappa{=}\)\texttt{extreme\_pixel\_weight}).
+\item \(\mathcal{L}_{\text{BCE}} =
+      \text{BCE}(\ell, \mathbb{1}_{|w|>\tau};
+      \texttt{pos\_weight}{=}\alpha)\) on classifier logits.
+\item \(\mathcal{L}_{\text{composite}}\) (S3 only):
+      L1 + SSIM-loss + AsymmetricExtreme + temporal-difference
+      + temporal-variance + extreme-pixel weighting.
+\item Dual-head total:
+      \(\alpha_r\mathcal{L}_{\text{(w)MAE}} + \beta\mathcal{L}_{\text{BCE}}\).
+\end{itemize}

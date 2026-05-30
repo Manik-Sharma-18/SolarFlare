@@ -29,6 +29,7 @@ from .loader import (
     _center_crop,
     _compute_norm_params,
     assign_files_to_splits,
+    assign_files_with_fixed_test,
 )
 
 
@@ -179,6 +180,7 @@ def load_harp_zarr_data(
     clip: float = WIND_FLUX_CLIP,
     window_size: Optional[int] = None,
     window_stride: Optional[int] = None,
+    test_cubes: Optional[List[str]] = None,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """Load `*.zarr` HARP cubes and build train/val/test datasets.
 
@@ -255,10 +257,17 @@ def load_harp_zarr_data(
               f"n_clipped={meta['n_clipped_pixels']}")
 
     # Whole-file (= cube-level / AR-identity) split — eliminates AR-identity
-    # leakage between train/val/test.
-    file_assignments = assign_files_to_splits(
-        [Path(p) for p in cube_paths], split_ratios, seed
-    )
+    # leakage between train/val/test. ``test_cubes`` pins a fixed, informative
+    # test set (cubes with extreme pixels) so flare CSI is comparable across
+    # arms instead of split-luck; else fall back to seeded ratio split.
+    if test_cubes:
+        file_assignments = assign_files_with_fixed_test(
+            [Path(p) for p in cube_paths], test_cubes, split_ratios, seed
+        )
+    else:
+        file_assignments = assign_files_to_splits(
+            [Path(p) for p in cube_paths], split_ratios, seed
+        )
 
     # Normalisation: per-cube (default, V5-informed) or legacy global.
     per_cube_norm: Optional[Dict[int, Dict[str, float]]] = None

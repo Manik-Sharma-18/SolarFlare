@@ -115,7 +115,9 @@ Also resolved 2026-05-21 (post-V5-pivot cleanup):
 
 ## Ablation matrix (queued)
 
-11-arm matrix lives under `configs/ablations/`. Each YAML is standalone (no runtime merge). All arms train from scratch (no `transfer_learning`) so each result reflects the architecture / policy alone.
+21-arm matrix lives under `configs/ablations/`. Each YAML is standalone (no runtime merge). All arms train from scratch (no `transfer_learning`) so each result reflects the architecture / policy alone. Two families: **A/B** (deep 6-layer `SolarFluxPredictor` flag ablations) and **S** (minimal 2-layer `SimpleConvLSTM` baseline series).
+
+### A/B family — deep model (`SolarFluxPredictor`)
 
 | Arm | Δ vs baseline | Question |
 |---|---|---|
@@ -130,6 +132,37 @@ Also resolved 2026-05-21 (post-V5-pivot cleanup):
 | `A8_kernel3` | `kernel_size=3` (vs 5) | smaller field suffices? |
 | `A9_tstride1` | temporal stride 1 (vs 4) | denser sampling → better val? |
 | `A10_aug_aggressive` | full D4 incl rotations (chirality-aware) | rotations help? |
+| `B0_convlstm_pure` | all 3 attention add-ons off (SA + tempattn + attngate) | does pure ConvLSTM beat the full attention stack? |
+
+### S family — minimal `SimpleConvLSTM` (2-layer, hidden 64, k3, 1ch flux)
+
+Built incrementally: each S-arm adds one change to chase the **flare-CSI≈0** failure. Root cause (confirmed S0/S1): L1 on a zero-mean heavy-tailed field makes "predict the smooth mean" optimal, so `|pred|` never crosses the extreme threshold (0.528 z) → TP=0 → CSI=0.
+
+| Arm | Δ vs prior S-arm | Question / result |
+|---|---|---|
+| `S0_simple_convlstm` | minimal baseline, L1, D4 aug | match the deep model? → **collapse to ≈0 field, CSI 0** |
+| `S1_simple_convlstm_noaug` | S0 minus augmentation | is aug the bottleneck? → **no, same collapse; persistence CSI 0.29 wins** |
+| `S2_simple_convlstm_residual` | S0 + residual decode (frame = prev + Δ) | anchor to persistence vs collapse? → **explodes (var ratio 18→764, no TF)** |
+| `S4_simple_convlstm_residual_tf` | S2 + teacher forcing (tf 1.0→0) | curb autoregressive explosion? → **cured (var ratio ~1); TEST CSI 0.099 HSS 0.178 SSIM 0.438** |
+| `S5_simple_convlstm_alldata` | S4 + GroupNorm + 90/5/5 split (~all data) | more data lift CSI? → **SSIM 0.70, persSkill 30%, but CSI still ~0 (smooths harder)** |
+| `S3_simple_convlstm_composite` | S5 + composite loss (extreme_pixel_weight 25 + asymmetric α5 + SSIM) | does tail-reweighting break L1 mean-collapse → lift CSI without var-ratio explosion? → **best val CSI 0.0236 (ep13, full 15ep) ≈ S6 extreme-only ⇒ SSIM/asym/temporal add ~0. var_ratio 0.037 (still smoothed). old-split test CSI 0.** |
+| `S6_simple_convlstm_extremeonly` | S5 + composite with ONLY extreme_pixel_weight 25 (SSIM/asym/temporal off) | which composite term drives S3's lift? → **val CSI 0.0215 ≈ S3 ⇒ extreme_pixel_weight IS the active ingredient (SSIM/asym/temporal add ~0). old-split test CSI 0 (flareless cube).** |
+| `S8_simple_convlstm_zscore_fixedtest` | S5 (L1+zscore) on the **fixed informative test set** [245,274,49] | matched control for S7 → **TEST CSI 0.0033 vs persistence 0.043 — model LOSES to persistence ~13×. var_ratio 0.19, SSIM 0.71.** |
+| `S7_simple_convlstm_signed_asinh` | S8 + `signed_asinh` norm (heavy-tail compression), eval thr 0.0346 | does tail-compression keep field sharp vs zscore+L1? → **TEST CSI 0.0042 ≈ S8 0.0033, both ≪ persistence 0.04. Hypothesis REJECTED. SSIM 0.98 is asinh-space artifact (not comparable), var_ratio early-exploded 8.8→settled 0.30.** |
+| `S9_simple_convlstm_s4_fixedtest` | S8 but `norm_type=batch` (= "S4 on fixed test") | is BatchNorm the sharpness driver? → **YES, via OVER-variance: var_ratio 3.7 (val hit 19) vs GroupNorm 0.19. TEST CSI 0.0118 — best model CSI on fixed test (3.5× S8) but still ≪ persistence 0.043. Unstable: SSIM collapsed 0.51→0.09, early-stop ep5. S4's visual "sharpness" = uncontrolled variance, not forecast skill.** |
+| `S10_simple_convlstm_fast_tf` | S8 + `tf_decay_epochs=5` + patience 8 (complete TF curriculum) | does free-run training cure t+3/t+4 drift + lift CSI? → **var_ratio bumped 0.75 @ep7 then L1 dragged back to 0.028 @ep15. TEST CSI 0.0027 ≈ S8. TF fix necessary-but-insufficient; L1 defeats it long-run.** |
+| `S11_simple_convlstm_fasttf_extreme` | S10 fast-TF + S6 extreme_pixel_weight (both levers) | do stacked levers beat persistence? → **TEST CSI 0.0176 — BEST of whole S-series (5× S8), additive, but still 2.4× below persistence 0.043. var_ratio re-collapsed 0.036.** |
+| `S12_simple_convlstm_dual_head` | S11 + **classifier head** (`enable_classifier_head=True`), α=β=1 BCE pos_weight 60 | does explicit per-pixel extreme classifier escape L1 smoothing? → first structural pivot. Original (cosine LR) killed mid-run for LR study; rerun on mini (id 76) in progress. |
+| `S13_simple_convlstm_dual_posweight100` | S12 + pos_weight 100 + **constant LR** (no cosine) | crank class-imbalance weight → cross persistence? → **TEST CSI (classifier) 0.0434, HSS 0.0749 — MATCHES persistence_csi 0.043 for the first time.** Regression head still dead (test CSI 0.0090). Pers skill 35.7%. Val_loss 0.151→0.149 monotone-ish, CLS-CSI 0.003→0.007. |
+| `S14_simple_convlstm_dual_focal` | S12 + focal loss (γ=2, α=0.25) over BCE | does focal-loss shape lift the classifier past S13? → **DEAD: CLS-CSI=0 every epoch. Focal over-suppresses positives at this imbalance (~0.1%).** |
+| `S15_simple_convlstm_dual_classifier_dominant` | S12 + α=0.1 (regression weight 10× lower) | does freeing the regression budget for the classifier help? → queued (id 78 retry, awaiting CUDA). |
+| `S16_simple_convlstm_dual_extreme_weighted` | S13 + **extreme_pixel_weight 25** (S11 lever) + pos_w 60 (not 100) | joint-train S11×S13 hybrid (validated by S17 inference combo +8%) — does extreme-weighted L1 recover regression amplitude alongside classifier? → **running 5060ti ep5/15: val 0.124 ✓ (18% drop ep1→5), SSIM 0.89, pers skill +31%, CLS-CSI 0.001–0.002 (lower than S13).** |
+
+Findings: [`findings_simple_convlstm_S0_S1.md`](findings_simple_convlstm_S0_S1.md), [`findings_S2_residual.md`](findings_S2_residual.md), [`findings_dual_head.md`](findings_dual_head.md).
+
+**S-series verdict (updated 2026-05-29).** S0–S11 (regression-only) all lose to persistence 0.043 (best S11 test CSI 0.0176). **S13 dual-head (pos_w 100, constant LR) MATCHES persistence (test CSI 0.0434 = 0.043) — first S-arm to do so.** Output-parametrization pivot validated. S14 (focal) DEAD. **S16** (S13+extreme_pixel_weight 25, joint S11×S13 hybrid) running — early signal SSIM 0.89, pers skill +31% by ep5, classifier weaker. **S17 inference combo** (post-hoc `S11×(1+2σ(S13_logits))`) gave 8% MAE lift on harp_11930 — confirms hybrid hypothesis. **Staircase autoregressive** on harp_11930 (`scripts/s0_viz/_staircase_harp11930.py`): S3 mode-collapses to 100K within 4 frames; S11 explodes after step 9 to 2M+ — neither sustains chained rollouts. **Constant LR is default** (`configs/finetune_winding_flux.yaml`); cosine washed late-epoch gradient. **val_csi_classifier** printed per-epoch (`trainer/reporting.py:40`) — val_loss misleading for dual_head (dominated by L1). **Fixed-test note:** val CSI=0 across S7–S15 because val is 1 random (often flareless) cube; trust test CSI. **CUDA-only policy 2026-05-29:** new training arms default `--slot-pref 5060ti_cuda`; MPS slots only for low-priority confirmation runs (e.g. S12 rerun id 81).
+
+**Eval robustness (2026-05-26).** The default random split ([train,test,val], seed 42) put a **near-flareless cube** in test (pers_csi 0.001) → flare CSI uninformative. Fix: `data.test_cubes` config field pins a fixed, informative test set (`harp_245, harp_274, harp_49` — top extreme-pixel rate, see `data/_extreme_rate_per_cube.json`; `harp_8` excluded as pathological). Discriminator is **per-cube extreme-pixel rate** (|z|>0.528), which is **orthogonal to GOES events** (e.g. `harp_11930` has 14 M/X flares but low pixel-rate; `harp_17` high pixel-rate, 0 GOES) — GOES is reserved for the separate event-based-CSI reframe. Split impl: `solarflare_data/loader.py:assign_files_with_fixed_test`. S0–S6 ran on the old random split; re-run on `test_cubes` for clean cross-arm CSI.
 
 Generator: `configs/ablations/build_configs.py`. Per-arm output dir: `outputs/ablations/<arm_id>/`. Recommended minimum-viable subset if compute-constrained: **A0 + A4 + A5 + A6** (covers the architecture-flag story).
 

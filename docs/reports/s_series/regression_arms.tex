@@ -1,0 +1,107 @@
+\section{Regression-only arms (S0--S11)}
+
+Eleven single-head arms varying loss, normalisation, teacher-forcing
+curriculum, and field representation. Headline: every arm loses to
+persistence (CSI 0.043). Best regression CSI = 0.0176 (S11) ---
+41\% of persistence.
+
+\subsection{S0 --- minimal baseline}
+\textbf{Loss:} L1 only. \textbf{Aug:} D4. \textbf{Norm:} BatchNorm.
+\textbf{Test CSI:} 0 across all epochs; best val 0.039 at ep4 then
+overfit.\\
+\textbf{Finding:} The 2-layer ConvLSTM with plain L1 collapses to the
+zero-field conditional median. Pred amplitude never crosses the
+extreme threshold so TP=0. Confirmed the wall is structural, not a
+capacity issue --- the deep 6-layer model also gets CSI \(\sim\)0.01.
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s0_harp11930_fullframe}
+
+\subsection{S2 --- residual decode}
+\textbf{Delta:} predict \(\Delta w_t\), output \(w_{t-1}+\Delta\).
+\textbf{Finding:} Without teacher forcing this \emph{explodes} ---
+variance ratio climbs 18\(\to\)764 across 15 epochs (autoregressive
+positive feedback). Confirmed residual anchor needs a stabiliser.
+(No figure: model output unusable.)
+
+\subsection{S4 --- S2 + teacher forcing}
+\textbf{Delta:} TF \(\tau{=}1{\to}0\) over training.
+\textbf{Test:} CSI 0.099, HSS 0.178, SSIM 0.438 (old random split).
+\textbf{Finding:} TF cures the explosion; variance ratio settles near
+1. Looks ``sharp'' visually but on the fixed test set later this
+sharpness turns out to be uncontrolled BatchNorm variance, not skill
+(see S9). \\[2pt]\noindent\includegraphics[width=\linewidth]{s4_harp11930_fullframe}
+
+\subsection{S5 --- S4 + 90/5/5 split + GroupNorm}
+\textbf{Delta:} more training data, swap BN\(\to\)GN.
+\textbf{Test:} SSIM 0.70, persistence skill +30\%, CSI \(\approx\) 0.
+\textbf{Finding:} GroupNorm + more data improves spatial similarity
+and beats persistence MAE, but \emph{smoother} field $\Rightarrow$
+\emph{lower} CSI on extremes. Trade-off explicit: L1 rewards smoothing,
+extreme classification punishes it.\\[2pt]\noindent\includegraphics[width=\linewidth]{s5_harp11930_fullframe}
+
+\subsection{S3 --- S5 + 6-term composite loss}
+\textbf{Loss:} L1 + SSIM + AsymExtreme + TempDiff + TempVar + extreme-pixel weight 25.
+\textbf{Test:} best val CSI 0.0236 (ep13); test 0 (random split put a
+flareless cube in test). \textbf{Finding:} Composite is the best
+\emph{regression} on the qualitative HARP 11930 spatial integral (see
+\S\ref{sec:cmp_intflux}) but the lift over single-term arms is small
+($\sim$2\(\times\) over S0). S6 below isolates which term carries the
+signal.\\[2pt]\noindent\includegraphics[width=\linewidth]{s3_harp11930_fullframe}
+
+\subsection{S6 --- only the extreme-pixel weight term}
+\textbf{Loss:} L1 + \texttt{extreme\_pixel\_weight}{=}25 (everything else off).
+\textbf{Test:} val CSI 0.0215 \(\approx\) S3.
+\textbf{Finding:} S3's full composite is \emph{not} additive --- 95\%
+of its lift comes from the single extreme-pixel-weight term. SSIM /
+asymmetric / temporal terms add \(\sim\)0. Identifies the only loss
+lever that moves the needle.\\[2pt]\noindent\includegraphics[width=\linewidth]{s6_harp11930_fullframe}
+
+\subsection{S8 --- S5 (L1) on fixed test cubes}
+\textbf{Delta:} pin test set to \{245, 274, 49\}.
+\textbf{Test CSI:} 0.0033 vs persistence 0.043 (\(13\times\) below).
+\textbf{Finding:} Establishes the persistence wall on a flare-rich
+fixed test set; the optimism in S4's old random-split CSI 0.099 was
+a flareless test-cube artefact.\\[2pt]\noindent\includegraphics[width=\linewidth]{s8_harp11930_fullframe}
+
+\subsection{S7 --- S8 + signed-asinh normalisation}
+\textbf{Delta:} swap z-score for
+\(\operatorname{sign}(w)\operatorname{asinh}(|w|/s)\) representation
+(\textbf{not} the loss; only how data enters the model). \textbf{Test
+CSI:} 0.0042 \(\approx\) S8. \textbf{Finding:} Heavy-tail input
+compression has no effect on CSI. Apparent SSIM 0.98 is an
+asinh-space artefact, not improvement in physical space. Representation
+lever \textbf{rejected}.
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s7_harp11930_fullframe}
+
+\subsection{S9 --- S8 with BatchNorm (= S4 on fixed test)}
+\textbf{Delta:} swap GN\(\to\)BN.
+\textbf{Test CSI:} 0.0118 (\(3.5\times\) S8 \emph{but} still below
+persistence by 4\(\times\)). \textbf{Finding:} BN drives over-variance
+(ratio 3.7, val hit 19); unstable (SSIM 0.51\(\to\)0.09, early-stop
+ep5). S4's visual ``sharpness'' was uncontrolled variance, \textbf{not}
+forecast skill. BN rejected.\\[2pt]\noindent\includegraphics[width=\linewidth]{s9_harp11930_fullframe}
+
+\subsection{S10 --- S8 + fast TF curriculum}
+\textbf{Delta:} \texttt{tf\_decay\_epochs}{=}5, patience 8.
+\textbf{Test CSI:} 0.0027 \(\approx\) S8.
+\textbf{Finding:} Free-running TF curriculum bumps variance ratio to
+0.75 briefly at ep7 but L1 drags it back to 0.028 by ep15. TF is
+necessary-but-insufficient on its own; L1 mean-collapse defeats the
+de-smoothing.\\[2pt]\noindent\includegraphics[width=\linewidth]{s10_harp11930_fullframe}
+
+\subsection{S11 --- S10 fast-TF \(+\) extreme weight (both working levers)}
+\textbf{Delta:} S10 + S6's extreme\_pixel\_weight 25.
+\textbf{Test CSI:} \textbf{0.0176} --- best of the S0--S11 series
+(5\(\times\) S8, 41\% of persistence). \textbf{Finding:} The two
+working levers are additive in CSI but the combo \emph{still} loses to
+persistence by 2.4\(\times\). Variance ratio re-collapses to 0.036 by
+ep15 --- L1 wins long-run.\\[2pt]\noindent\includegraphics[width=\linewidth]{s11_harp11930_fullframe}
+
+\subsection*{Verdict for the regression-only family}
+Four levers explored (loss reweighting, BN/GN, TF curriculum,
+input representation). The only loss term that moves CSI is
+\texttt{extreme\_pixel\_weight}; the only TF schedule that helps is
+the full \(\tau{:}1\!\to\!0\). Stacking both (S11) gets to 41\% of
+persistence. \textbf{All single-head paths exhausted}; the model
+cannot push regression amplitude past the extreme threshold without
+also losing the L1 fit elsewhere.
+\textbf{Conclusion: structural pivot needed.}

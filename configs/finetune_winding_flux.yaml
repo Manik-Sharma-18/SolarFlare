@@ -64,8 +64,7 @@ training:
   use_amp: true
   grad_clip: 0.5
   scheduler:
-    type: "cosine"
-    cosine_eta_min: 0.000001
+    type: "constant"
 
 loss:
   type: "composite"

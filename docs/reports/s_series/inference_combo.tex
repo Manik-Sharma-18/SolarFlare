@@ -1,0 +1,42 @@
+\section{S17 --- post-hoc S11\(\times\)S13 inference combo}
+
+Before committing GPU to S16 training we asked the cheaper
+question: \emph{would} multiplying S11's regression output by S13's
+classifier confidence improve the joint forecast? No training; both
+checkpoints already on disk. Three fusion variants tested on HARP
+11930, full-frame tiled (3 active windows, integrated winding-flux
+MAE as proxy for end-to-end skill):
+
+\begin{center}\small
+\begin{tabular}{l c c}
+\toprule
+Variant & Mean MAE & vs.\ S11 alone \\
+\midrule
+\rowcolor{tabhdr}
+\textbf{B\_soft:} \(\hat w_{\text{S11}} \cdot \bigl(1 + 2\sigma(\ell_{\text{S13}})\bigr)\)
+& \textbf{2.06\(\times\)10\(^8\)} & \textcolor{wingreen}{\textbf{\(-\)8\%}}\\
+S11 alone (regression)             & 2.23\(\times\)10\(^8\) & --- \\
+A\_gate: \(\hat w_{\text{S11}} \cdot (\sigma(\ell_{\text{S13}}) > 0.5)\)
+& 2.38\(\times\)10\(^8\) & \textcolor{winred}{+7\%} \\
+S13 alone (regression head only) & 3.00\(\times\)10\(^8\) & +34\% \\
+C\_blend: S13 where mask else S11 & 3.01\(\times\)10\(^8\) & +35\% \\
+Persistence (pred = 0)             & 4.84\(\times\)10\(^8\) & +117\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mask coverage 5.5--5.9\% of pixels per window (classifier fires on a
+small fraction). Lessons:
+\begin{itemize}[leftmargin=14pt,itemsep=1pt,topsep=2pt]
+\item \textbf{Soft boost \(>\) hard gate.} Zeroing background flux
+      hurts integrated MAE more than amplifying extreme zones helps.
+\item \textbf{S13 regression alone is useless} (pos\_weight 100 left
+      no L1 budget); blending S13 in for extreme zones \emph{worsens}
+      the integrated flux relative to S11 alone.
+\item \textbf{Hybrid hypothesis confirmed} at the post-hoc level
+      (8\% lift). The natural next question --- ``does joint
+      training recover this gain at the loss level?'' --- is exactly
+      what S16 (\S\ref{sec:s16}) answers: yes, and it
+      \emph{compounds} (S16 classifier CSI 0.0562 = 29\% over S13's
+      0.0434, alongside regression CSI 2.8\(\times\) better).
+\end{itemize}

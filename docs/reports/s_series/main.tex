@@ -1,0 +1,85 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black,citecolor=blue!60!black]{hyperref}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\graphicspath{{figures/}}
+
+\definecolor{tabhdr}{HTML}{E8E8E8}
+\definecolor{wingreen}{HTML}{2E7D32}
+\definecolor{winred}{HTML}{C62828}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small SolarFlare V4 --- S-series ablations}
+\fancyhead[R]{\small harp\_11930 focus}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{SolarFlare V4 SimpleConvLSTM:\\ S-series Ablations Report}\\
+       \large Predicting Winding-Flux Extremes from Sequential Magnetograms\\
+       \large Case Study: HARP 11930}
+\author{Manik Sharma\\\small{Engineering Physics, IIT BHU}}
+\date{\today}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+We report an ablation sweep over a minimal 2-layer convolutional LSTM
+(\emph{SimpleConvLSTM}) for forecasting the next 4 frames of winding
+flux \(w(\mathbf{x},t)\) of an active region. The goal of the
+sweep is to climb above the trivial \emph{persistence baseline}
+(``predict the last frame'') on the Critical Success Index (CSI) of
+extreme flux pixels --- a thresholded binary metric directly relevant
+to flare onset.
+We trained 16 sister models (S0--S16, excluding two that re-ran already-known
+configurations). The first eleven (S0--S11) varied loss
+re\-weighting, normalisation, teacher-forcing schedule, and field
+representation; \textbf{all eleven lost to persistence}. We then pivoted
+to a \emph{dual-head architecture} that adds a per-pixel binary
+classifier (``is this pixel extreme at time \(t\)?'') trained with
+class-imbalance-corrected binary cross-entropy alongside the regression
+loss. Arm \textbf{S13} first matched persistence
+(CSI~\(\sim\)0.043) and \textbf{S16} --- the hybrid of S13's classifier
+head with S11's extreme-pixel-weighted regression --- \textbf{beat
+persistence by \(\sim\)31\%} (CSI 0.0562 vs.\ persistence 0.043) while
+simultaneously improving regression CSI 2.8\(\times\) over S13. All
+metrics are reported on a fixed informative test set of three flare-rich
+HARP cubes [245, 274, 49]. We close with a multi-step autoregressive
+``staircase'' diagnostic on HARP 11930 showing that even the best
+single-step arms either mode-collapse (S3) or runaway-explode (S11)
+under chained prediction, indicating regression fidelity at horizons
+longer than 4 frames remains open.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\input{intro.tex}
+\newpage
+\input{setup.tex}
+\newpage
+\input{regression_arms.tex}
+\newpage
+\input{dualhead_arms.tex}
+\newpage
+\input{inference_combo.tex}
+\newpage
+\input{staircase.tex}
+\newpage
+\input{summary.tex}
+
+\end{document}

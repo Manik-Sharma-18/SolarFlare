@@ -139,6 +139,32 @@ def accumulate_contingency(
     return results
 
 
+def accumulate_contingency_from_logits(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    threshold: float,
+    decision_threshold: float = 0.0,   # logits>0 ⇔ sigmoid>0.5
+) -> list:
+    """Like :func:`accumulate_contingency` but the *prediction* comes from a
+    binary classifier head (``logits``, sigmoid > 0.5 = positive), while the
+    *target* is still derived from amplitude (``abs > threshold``)."""
+    binary_pred = (logits > decision_threshold).long()
+    binary_target = (target.abs() > threshold).long()
+    if binary_pred.shape[1] == 1 and binary_target.shape[1] > 1:
+        binary_pred = binary_pred.expand_as(binary_target)
+    T = binary_pred.shape[2] if binary_pred.dim() == 5 else 1
+    results = []
+    for t in range(T):
+        bp = binary_pred[:, :, t] if binary_pred.dim() == 5 else binary_pred
+        bt = binary_target[:, :, t] if binary_target.dim() == 5 else binary_target
+        tp = int(((bp == 1) & (bt == 1)).sum().item())
+        fp = int(((bp == 1) & (bt == 0)).sum().item())
+        fn = int(((bp == 0) & (bt == 1)).sum().item())
+        tn = int(((bp == 0) & (bt == 0)).sum().item())
+        results.append((tp, fp, fn, tn))
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Persistence Baseline — EVAL-04
 # ---------------------------------------------------------------------------

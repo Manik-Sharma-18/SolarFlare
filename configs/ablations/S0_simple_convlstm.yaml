@@ -41,7 +41,7 @@ training:
   lr: 0.001
   weight_decay: 1.0e-05
   tf_start: 0.0
-  patience: 6
+  patience: 3
   use_amp: false
   grad_clip: 0.5
   scheduler:

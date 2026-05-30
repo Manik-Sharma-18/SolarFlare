@@ -419,8 +419,7 @@ class TestHistoryNewKeys:
     """Verify the history dict structure includes new metric keys."""
 
     def test_history_has_new_keys(self):
-        """The history dict initialized in train_model() should have new metric keys."""
-        # We can test this by checking the expected keys exist in the template
+        """The history dict initialized for training should have new metric keys."""
         expected_new_keys = [
             'val_csi', 'val_hss', 'val_ssim', 'val_ssim_per_timestep',
             'persistence_skill_per_timestep', 'persistence_csi', 'persistence_hss',
@@ -429,9 +428,8 @@ class TestHistoryNewKeys:
             'val_csi_per_timestep', 'val_hss_per_timestep',
             'persistence_mae_per_timestep',
         ]
-        # Import and check the code has the new keys
-        import inspect
-        from training.trainer import train_model
-        source = inspect.getsource(train_model)
+        # Check the actual initialized history dict, not its source text.
+        from training.trainer.setup import init_history
+        history = init_history()
         for key in expected_new_keys:
-            assert f"'{key}'" in source, f"History key '{key}' not found in train_model source"
+            assert key in history, f"History key '{key}' missing from init_history()"

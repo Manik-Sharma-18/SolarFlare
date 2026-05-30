@@ -1,0 +1,80 @@
+\section{Cross-arm summary \& next levers}
+
+\subsection*{Test-set CSI ranked (fixed test cubes 245, 274, 49)}
+\begin{center}\small
+\begin{tabular}{l r r r l}
+\toprule
+Arm & reg.\ CSI & CLS-CSI & cls HSS & vs.\ pers.\ 0.043 \\
+\midrule
+\rowcolor{tabhdr}\textbf{S16} (hybrid wMAE + classifier)  & \textbf{0.0255} & \textbf{0.0562} & \textbf{0.0995} & \textcolor{wingreen}{\textbf{+31\% above}} \\
+S15 (\(\alpha{=}0.1\) dual)               & 0.0184 & 0.0445 & 0.0783 & matches \\
+\rowcolor{tabhdr}S13 (dual, \(p{=}100\))   & 0.0090 & 0.0434 & 0.0749 & matches \\
+S11 (regression only, fastTF + ext.\ wt.) & 0.0176 & --- & --- & 41\% of \\
+S6 (extreme weight only)                  & 0.0215 (val) & --- & --- & --- \\
+S3 (full composite)                       & 0.0236 (val) & --- & --- & --- \\
+S9 (BatchNorm)                            & 0.0118 & --- & --- & 27\% of \\
+S7 (signed asinh)                         & 0.0042 & --- & --- & 10\% of \\
+S8 (L1 fixed test)                        & 0.0033 & --- & --- & 8\% of \\
+S10 (fast-TF L1)                          & 0.0027 & --- & --- & 6\% of \\
+S0 (baseline)                             & 0 & --- & --- & 0\% \\
+S14 (focal classifier)                    & 0 reg, \textbf{0 cls} & 0 & 0 & dead arm \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Mechanism narrative (one sentence per arm cluster)}
+\begin{itemize}[leftmargin=14pt,itemsep=2pt,topsep=2pt]
+\item \textbf{S0--S11 (regression-only)}: L1 minimises the conditional
+      median of a heavy-tailed field; predictions never cross the
+      extreme threshold; CSI capped well below persistence.
+\item \textbf{S13 (dual-head, pos\_w 100)}: explicit BCE classifier
+      bypasses the regression bottleneck; matches persistence at the
+      cost of a dead regression head.
+\item \textbf{S14 (focal)}: focal's \((1-p)^\gamma\) factor over-suppresses
+      gradients on rare positives at our imbalance level $\Rightarrow$
+      classifier never escapes init.
+\item \textbf{S15 (\(\alpha{=}0.1\))}: lowering regression weight does not
+      buy classifier headroom; classifier saturates above some
+      \(\beta\)-threshold.
+\item \textbf{S16 (joint hybrid)}: weighted-MAE on regression head
+      + lighter pos\_w 60 BCE classifier $\Rightarrow$ both heads
+      learn complementary signals; first arm above persistence.
+\end{itemize}
+
+\subsection*{Next levers}
+If we want to push past S16's +31\%-of-persistence:
+\begin{enumerate}[leftmargin=18pt,itemsep=2pt,topsep=2pt]
+\item \texttt{pos\_weight} sweep at fixed
+      \texttt{extreme\_pixel\_weight}{=}25: find the Pareto
+      frontier between regression and classifier heads.
+\item \textbf{Quantile regression head} (pinball loss at
+      \(\tau\in\{0.5,0.9,0.99\}\)): predict the 99-th percentile
+      amplitude directly rather than gating an L1 mean. Skips the
+      classifier detour.
+\item \textbf{Event-onset reframe}: per-frame
+      \(P(\exists\,\text{extreme pixel in next K frames})\) using
+      GOES-aligned event labels --- orthogonal to per-pixel rate; uses
+      the half of HARP cubes (e.g.\ 11930) where pixel rate and GOES
+      events are decoupled.
+\item \textbf{GradNorm balancing}: auto-balance
+      \(\alpha, \beta\) so per-batch gradient norms are equal; avoids
+      hand tuning the multi-task loss weights.
+\item \textbf{Autoregressive regularisation}: penalise variance ratio
+      \(\to\)1 during training, addressing both S3 collapse and S11
+      explosion identified in the staircase diagnostic (\S\ref{sec:cmp_intflux}).
+\end{enumerate}
+
+\subsection*{Reproducibility pointers}
+Configs: \texttt{configs/ablations/S\{0..16\}\_*.yaml}.
+Best checkpoints: \texttt{outputs/ablations/<arm>/checkpoints/best\_model.pt}.
+Compare \& staircase scripts:
+\texttt{scripts/s0\_viz/\{\_compare\_harp11930, \_s17\_combo,
+\_staircase\_harp11930, \_staircase\_viz\}.py}. Per-epoch logs:
+\texttt{logs/main\_\_5060ti\_cuda.log} and
+\texttt{logs/main\_\_mini\_mps.log}.
+
+Full per-experiment writeup
+in \texttt{docs/V4/findings\_dual\_head.md} (dual-head pivot),
+\texttt{docs/V4/findings\_simple\_convlstm\_S0\_S1.md} (early regression
+arms), and the ablation matrix table in
+\texttt{docs/V4/04\_experiments\_and\_state.md}.
