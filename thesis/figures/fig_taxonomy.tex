@@ -1,0 +1,36 @@
+% Taxonomy of data-driven flare forecasting; where this thesis sits.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small, >=Latex, node distance=6mm and 9mm,
+  card/.style={draw, rounded corners=3pt, minimum height=13mm, text width=30mm,
+               align=center, fill=black!4, inner sep=3pt},
+  mine/.style={card, fill=green!14, very thick},
+]
+\node[card] (sharp) {\textbf{ML on SHARP scalars}\\\scriptsize SVM on integrated
+  field parameters~\cite{bobra2015}};
+\node[card, right=of sharp] (cnn) {\textbf{Deep spatial}\\\scriptsize CNN on
+  magnetogram images~\cite{huang2018}};
+\node[card, right=of cnn] (lstm) {\textbf{Deep temporal}\\\scriptsize LSTM on SHARP
+  time series~\cite{liu2019,nishizuka2018}};
+\node[card, below=14mm of sharp] (phys) {\textbf{Winding physics}\\\scriptsize signed
+  topological precursor~\cite{mactaggart2021}};
+\node[card, below=14mm of cnn] (scalar) {\textbf{Winding $\to$ 1 scalar}\\\scriptsize
+  spatial integral, sign cancels};
+\node[mine, below=14mm of lstm] (mine) {\textbf{Winding \emph{map} (this thesis)}\\
+  \scriptsize 2D structure, spatiotemporal model};
+\draw[->] (sharp) -- (cnn); \draw[->] (cnn) -- (lstm);
+\draw[->] (phys) -- (scalar);
+\draw[->, very thick, green!45!black] (scalar) -- (mine);
+\draw[->, dashed] (lstm) -- (mine);
+\draw[->, dashed] (phys) to[out=90,in=180] (sharp);
+\end{tikzpicture}
+\caption[Forecasting landscape]{\textbf{Where this thesis sits.} Data-driven
+flare forecasting progressed from machine learning on integrated SHARP scalars
+to deep spatial and deep temporal models. In parallel, magnetic winding emerged
+as a physically motivated precursor, but existing work reduces the winding
+\emph{map} to a single spatial integral, in which oppositely signed regions
+cancel. This thesis instead feeds the two-dimensional winding map, with its
+structure intact, to a spatiotemporal model.}
+\label{fig:taxonomy}
+\end{figure}

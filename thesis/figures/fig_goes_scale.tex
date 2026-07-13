@@ -1,0 +1,28 @@
+% GOES soft X-ray flare classification scale (log flux bands A--X).
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex]
+\def\w{2.2}   % band width
+\foreach \i/\lab/\col/\flux in {
+  0/A/gray!20/{$<10^{-7}$},
+  1/B/blue!15/{$10^{-7}$},
+  2/C/teal!20/{$10^{-6}$},
+  3/M/orange!30/{$10^{-5}$},
+  4/X/red!35/{$10^{-4}$}}{
+  \fill[\col] (\i*\w,0) rectangle (\i*\w+\w,1);
+  \draw (\i*\w,0) rectangle (\i*\w+\w,1);
+  \node[font=\large\bfseries] at (\i*\w+\w/2,0.62) {\lab};
+  \node[font=\scriptsize] at (\i*\w+\w/2,0.24) {\flux};
+}
+\node[font=\scriptsize] at (2.5*\w,-0.4) {peak $1$--$8$~\AA{} X-ray flux (W\,m$^{-2}$), logarithmic $\longrightarrow$};
+% forecast-target bracket over M and X
+\draw[thick,decorate,decoration={brace,amplitude=5pt}] (3*\w,1.15) -- (5*\w,1.15)
+  node[midway,above=5pt,font=\small\bfseries]{forecast target: $\geq$M};
+\end{tikzpicture}
+\caption[GOES flare classes]{\textbf{The GOES soft X-ray flare classification.}
+Flares are graded A--X by their peak $1$--$8$~\AA{} X-ray flux, each class a
+factor of ten above the last. Operational concern---and the target of this
+work---is the $\geq$M regime: energetic enough to drive space-weather impacts,
+yet rare enough that reliable anticipation remains difficult.}
+\label{fig:goes}
+\end{figure}

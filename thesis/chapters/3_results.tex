@@ -1,0 +1,112 @@
+\chapter{Results and Analysis}
+\label{ch:results}
+
+This chapter reports the forecasting experiment and reads its outcome honestly.
+The model of Chapter~\ref{ch:arch} is trained and evaluated under the
+leave-one-active-region-out protocol (\S\ref{sec:setup}); the forecasts on a
+held-out region are shown and quantified (\S\ref{sec:forecast}); and the result
+is then interpreted, separating the genuine skill of the model from the
+persistence that a smoothly evolving field affords for free
+(\S\ref{sec:discussion}).
+
+\section{Experimental setup}
+\label{sec:setup}
+
+The encoder--forecaster is trained on the pooled gap-aware windows of $26$
+active regions and evaluated on a single held-out region, HARP~11930, that it
+never sees during training. The noisy region flagged in \S\ref{sec:data} is
+excluded from every split. Each cube contributes only windows whose ten input
+and four target frames are consecutive in real time at the nominal $12$-minute
+cadence, so no window straddles an acquisition gap; this yields $2{,}784$
+training windows and $61$ held-out windows. All frames are the accumulated total
+winding of Eq.~\eqref{eq:cumsum}, asinh-normalised and low-passed onto a fixed
+$88\times132$ grid.
+
+The model is a three-layer ConvLSTM encoder--forecaster ($3.3$~million
+parameters, hidden width $96$), trained for $48$ epochs with Adam, a cosine
+learning-rate decay, and gradient-norm clipping, forecasting $t_{\text{out}}=4$
+frames ($48$~minutes) from $t_{\text{in}}=10$ history frames ($120$~minutes). The
+reference against which it is judged is the \emph{persistence} forecast---copying
+the last observed frame forward---which is the natural zero-skill baseline for a
+strongly autocorrelated field and the fallback the residual parameterisation of
+Eq.~\eqref{eq:residual} is built around. Skill is defined as the fractional
+reduction in mean absolute error relative to persistence,
+\begin{equation}
+  \text{skill} \;=\; 1 - \frac{\mathrm{MAE}_{\text{model}}}{\mathrm{MAE}_{\text{persistence}}}.
+  \label{eq:skill}
+\end{equation}
+
+\section{Forecasting the held-out active region}
+\label{sec:forecast}
+
+Figure~\ref{fig:forecast} shows the model's forecasts on HARP~11930 for three
+windows drawn from different days. In each row the network sees ten frames up to
+the ``latest input'' time and predicts the next four; the final prediction is
+placed beside the observed frame at the same instant. The large-scale
+organisation of the winding field---the opposed red and blue lobes and their
+boundary---is reproduced across the full $48$-minute horizon, and the predicted
+$t{+}48$~min frame is visually close to the observation.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_forecast_loo.pdf}
+\caption[Held-out forecasts]{\textbf{Winding-flux forecasts on the held-out
+active region HARP~11930.} Each row is an independent window: the latest input
+frame, the four autoregressive forecasts at $+12,+24,+36,+48$~minutes, and the
+observed frame at $+48$~minutes, all stamped with their true UTC time. The model
+is trained only on the other $26$ regions. The accumulated-total field evolves
+slowly, and the network tracks its large-scale structure across the horizon.}
+\label{fig:forecast}
+\end{figure}
+
+Quantitatively, over all $61$ held-out windows the model attains a mean absolute
+error of $0.0106$ (in the normalised units of \S\ref{sec:data}) against
+$0.0117$ for persistence, a skill of $+9.3\%$ by Eq.~\eqref{eq:skill}. The
+forecaster therefore does slightly better than copying the last frame, on a
+region it was never trained on.
+
+\section{Discussion}
+\label{sec:discussion}
+
+Three points must be made plainly, because the visual quality of
+Figure~\ref{fig:forecast} is easy to over-read.
+
+\paragraph{The skill is real but small, and persistence-dominated.}
+The model beats persistence by $9.3\%$ on a held-out region, so it has learned
+something transferable about how the winding field evolves, beyond copying.
+But the margin is modest, and it must be. As established in \S\ref{sec:data} and
+Figure~\ref{fig:autocorr}, the accumulated total is strongly autocorrelated
+precisely because it is a running integral of the near-white rate; a running
+integral changes little from frame to frame, so persistence is already a strong
+forecast and there is limited headroom above it. The striking agreement between
+prediction and observation in Figure~\ref{fig:forecast} is therefore mostly a
+statement about the \emph{predictability of the total field}, not a claim of
+large model skill.
+
+\paragraph{The forecastable content is the low-pass envelope.}
+The spatial low-pass of \S\ref{sec:data} was applied deliberately, and the
+result vindicates the reasoning behind it: what the model reproduces is the
+large-scale envelope of the winding field, not its fine structure. The
+sub-envelope detail that the low-pass removed is the same detail that
+Figure~\ref{fig:autocorr} shows to be temporally incoherent; it could not have
+been forecast, and excluding it lets the model spend its capacity where skill is
+attainable. This is an honest restriction of scope, not a hidden one.
+
+\paragraph{Rate versus total, once more.}
+The single most consequential finding of this work is not the $9.3\%$ skill but
+the distinction that produced it. The stored winding field is a rate that is
+almost temporally incoherent; its time-integral, the physically meaningful total
+winding, is what can be forecast. A model applied naively to the stored field
+would appear to fail; the same model applied to the accumulated total appears to
+succeed---and both impressions are misleading unless read against the
+persistence baseline. Reporting that baseline alongside every result is what
+keeps the account truthful.
+
+\paragraph{Outlook.}
+Taken together, the experiment delivers a working spatiotemporal pipeline for
+two-dimensional winding-flux maps and a clear-eyed measurement of what such
+forecasting can yield. The path from here is not a better frame predictor---the
+persistence ceiling makes that a diminishing return---but the use of the learned
+spatiotemporal representation for the task that motivated the winding map in the
+first place: discriminating flare-productive from quiet configurations from the
+structure the scalar integral throws away.

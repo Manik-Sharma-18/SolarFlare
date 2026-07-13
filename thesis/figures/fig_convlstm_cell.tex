@@ -1,0 +1,65 @@
+% ConvLSTM cell internals — one conv computes all four gates; cell/hidden update.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw, rounded corners=2pt, minimum height=7mm, minimum width=9mm, align=center},
+  gate/.style={draw, circle, minimum size=6mm, inner sep=0pt},
+  op/.style={draw, circle, minimum size=5.5mm, inner sep=0pt, fill=black!4},
+  sig/.style={box, fill=blue!8},
+  tnh/.style={box, fill=orange!12},
+  >=Latex, node distance=6mm
+]
+% inputs
+\node (xt)   at (0,-2.0) {$x_t$};
+\node (hp)   at (0, 0.0) {$h_{t-1}$};
+\node (cp)   at (0, 2.0) {$c_{t-1}$};
+% concat + conv
+\node[box, fill=black!5, minimum height=16mm] (cat) at (2.0,-1.0) {concat\\$[x_t,h_{t-1}]$};
+\node[box, fill=green!10, minimum height=22mm, minimum width=13mm] (conv) at (4.2,-0.6)
+      {Conv$2$D\\$\to 4C$\\channels};
+\draw[->] (xt) -- (cat.south west|-xt);
+\draw[->] (hp) -- (cat.north west|-hp);
+\draw[->] (cat) -- (conv);
+% four gate activations
+\node[sig] (gi) at (6.6, 1.4) {$\sigma$};
+\node[sig] (gf) at (6.6, 0.4) {$\sigma$};
+\node[tnh] (gg) at (6.6,-0.6) {$\tanh$};
+\node[sig] (go) at (6.6,-1.6) {$\sigma$};
+\node[right=1mm of gi] {$i_t$};
+\node[right=1mm of gf] {$f_t$};
+\node[right=1mm of gg] {$g_t$};
+\node[right=1mm of go] {$o_t$};
+\foreach \g in {gi,gf,gg,go}{\draw[->] (conv.east) -- (\g.west);}
+% cell-state line
+\node[op] (mulf) at (9.2, 1.4) {$\odot$};
+\node[op] (mulig) at (9.2,-0.1) {$\odot$};
+\node[op] (add)  at (10.6, 1.4) {$+$};
+\node[tnh, minimum width=7mm] (tc) at (12.0, 1.4) {$\tanh$};
+\node[op] (mulo) at (12.0,-1.6) {$\odot$};
+% c_{t-1} into f-mult
+\draw[->] (cp) -- (cp-|mulf) node[midway,above,font=\scriptsize]{} -- (mulf.north);
+\draw[->] (gf) -- (mulf);
+\draw[->] (gi) to[out=0,in=180] (mulig.west);
+\draw[->] (gg) to[out=0,in=180] ($(mulig.west)+(0,-0.0)$);
+\draw[->] (mulf) -- (add);
+\draw[->] (mulig) -- (mulig-|add) -- (add.south);
+% c_t out
+\node (ct) at (13.8, 1.4) {$c_t$};
+\draw[->] (add) -- (ct);
+\draw[->] (add) -- ++(0.0,0) -| (tc.north);
+% h_t out
+\draw[->] (tc) -- (tc|-mulo) -- (mulo.north);
+\draw[->] (go) -- (mulo);
+\node (ht) at (13.8,-1.6) {$h_t$};
+\draw[->] (mulo) -- (ht);
+\end{tikzpicture}
+\caption[ConvLSTM cell]{\textbf{The Convolutional LSTM cell.} A single
+$2$D convolution over the channel-concatenated input and previous hidden state
+$[x_t,h_{t-1}]$ produces all four gate maps at once (input $i_t$, forget $f_t$,
+candidate $g_t$, output $o_t$; Eq.~\ref{eq:gates}). The cell state updates as
+$c_t=f_t\odot c_{t-1}+i_t\odot g_t$ and the hidden state as
+$h_t=o_t\odot\tanh(c_t)$ (Eq.~\ref{eq:cell}). All states are feature maps, so
+spatial structure is preserved through the recurrence.}
+\label{fig:cell}
+\end{figure}

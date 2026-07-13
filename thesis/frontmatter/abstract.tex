@@ -1,0 +1,31 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+\vspace{0.6cm}
+
+Solar flares are sudden releases of magnetic energy in the Sun's atmosphere
+whose radiation and ejecta drive space-weather hazards at Earth. Forecasting
+them from the observable state of a source active region remains an open
+problem, made hard by the rarity of large events and by the fact that the
+governing coronal currents are seen only through their photospheric footprint.
+Magnetic \emph{winding flux}---a signed, topological measure of how field lines
+wrap around one another, concentrated along polarity inversion lines---has been
+proposed as a physically motivated precursor, but existing work reduces the
+winding map to a single spatial integral before forecasting, cancelling the
+signed, localised structure that carries the signal.
+
+This thesis takes a first step toward using the winding-flux map without that
+reduction. A Convolutional LSTM (ConvLSTM) encoder--forecaster is trained to
+predict the short-term evolution of the two-dimensional winding field of an
+active region from a ten-frame history, under a strict
+leave-one-active-region-out protocol. A key empirical finding organises the
+results: the stored winding field behaves as a near-white \emph{rate}, whereas
+its time-integral---the accumulated total winding---is smooth and strongly
+persistent, and it is the total that is the appropriate forecasting target. On
+the total field the model reproduces the large-scale evolution of held-out
+active regions; its skill is reported honestly against a persistence baseline,
+and the roles of the spatial low-pass and of the rate--total distinction are
+analysed rather than hidden. The work establishes both a working spatiotemporal
+pipeline for winding-flux maps and a clear-eyed account of what such
+forecasting can and cannot deliver, motivating the structure-aware direction for
+subsequent flare-prediction research.

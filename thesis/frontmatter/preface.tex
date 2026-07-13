@@ -1,0 +1,40 @@
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+
+\vspace{0.8cm}
+
+This thesis investigates spatiotemporal deep-learning models for the magnetic
+winding-flux field of solar active regions, derived from Solar Dynamics
+Observatory (SDO) Helioseismic and Magnetic Imager (HMI) observations. The work
+was carried out in the Department of Physics, Indian Institute of Technology
+(Banaras Hindu University), Varanasi, as part of the Integrated Dual Degree
+(B.Tech.\ + M.Tech.) programme in Engineering Physics.
+
+\noindent\textbf{Subject.}\quad
+The subject is the design, training and honest evaluation of a Convolutional
+LSTM (ConvLSTM) encoder--forecaster that predicts the short-term evolution of
+the two-dimensional winding-flux map of an active region, as a step toward
+structure-aware solar flare forecasting.
+
+\noindent\textbf{Scope.}\quad
+The thesis is organised as three chapters. Chapter~\ref{ch:intro} introduces
+solar flares, the space-weather forecasting problem, and the current
+data-driven landscape, and identifies the gap addressed here: existing work
+integrates the winding-flux map to a single scalar, discarding its spatial
+structure. Chapter~\ref{ch:arch} specifies the data representation, the ConvLSTM
+architecture, and the leave-one-active-region-out training procedure.
+Chapter~\ref{ch:results} reports the forecasting results and analyses them
+against a persistence baseline, distinguishing genuine predictive skill from the
+persistence afforded by a smoothly evolving field.
+
+\noindent\textbf{A note on honesty.}\quad
+Where a preprocessing choice makes the task easier---in particular the spatial
+low-pass and the use of the accumulated total winding field---this is stated
+plainly in the text and its consequences are examined rather than obscured. No
+result in this thesis is presented as stronger than the evidence supports.
+
+\vspace{2cm}
+
+\noindent
+\hfill \theauthorname\\
+\hfill Varanasi

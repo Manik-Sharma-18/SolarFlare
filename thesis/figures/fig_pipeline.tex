@@ -1,0 +1,26 @@
+% Data pipeline: raw rate cube -> accumulated total -> normalized, low-passed windows.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small, >=Latex, node distance=4mm,
+  pstep/.style={draw, rounded corners=3pt, minimum height=13mm, text width=23mm,
+               align=center, fill=black!4, inner sep=3pt},
+  hl/.style={fill=green!12},
+]
+\node[pstep] (raw) {zarr \texttt{wind}\\$[H,W,T]$\\\scriptsize(winding \emph{rate})};
+\node[pstep, right=of raw] (sent) {drop sentinels\\\scriptsize$\mathrm{Time}\le 0$};
+\node[pstep, right=of sent, hl] (cum) {accumulate\\$W[t]{=}\sum_{\tau\le t} w$\\\scriptsize(\emph{total}, persistent)};
+\node[pstep, right=of cum] (asinh) {asinh$(\cdot/10^{3})$\\+ robust scale\\\scriptsize clip $[-1,1]$};
+\node[pstep, right=of asinh] (low) {downsample\\+ Gaussian\\low-pass};
+\node[pstep, right=of low, hl] (win) {gap-aware\\windows\\\scriptsize$t_{\text{in}}{=}10\!\to\!t_{\text{out}}{=}4$};
+\foreach \a/\b in {raw/sent, sent/cum, cum/asinh, asinh/low, low/win}{\draw[->, thick] (\a) -- (\b);}
+\end{tikzpicture}
+\caption[Data pipeline]{\textbf{Winding-flux data pipeline.} The stored field is a
+near-white \emph{rate}; missing frames (sentinel timestamps) are removed, and the
+field is accumulated over time into the persistent \emph{total} winding
+$W[t]$ (Eq.~\ref{eq:cumsum}), the forecasting target. The total is passed through
+the sign-preserving asinh transform of Eq.~\eqref{eq:asinh} and a robust rescale,
+spatially downsampled and low-passed (\S\ref{sec:data}), and finally cut into
+gap-aware history/future windows for training (\S\ref{sec:training}).}
+\label{fig:pipeline}
+\end{figure}

@@ -1,0 +1,44 @@
+\chapter*{Symbols and Abbreviations}
+\addcontentsline{toc}{chapter}{Symbols and Abbreviations}
+
+\vspace{0.8cm}
+
+\noindent\textbf{Abbreviations}
+\vspace{0.3cm}
+
+\noindent
+\begin{tabular}{l p{0.78\textwidth}}
+AR        & Active Region (a region of strong, structured magnetic field on the solar surface) \\
+SDO       & Solar Dynamics Observatory \\
+HMI       & Helioseismic and Magnetic Imager (onboard SDO) \\
+SHARP     & Spaceweather HMI Active Region Patch \\
+HARP      & HMI Active Region Patch \\
+GOES      & Geostationary Operational Environmental Satellite \\
+PIL       & Polarity Inversion Line \\
+CNN       & Convolutional Neural Network \\
+LSTM      & Long Short-Term Memory \\
+ConvLSTM  & Convolutional LSTM \\
+MAE       & Mean Absolute Error \\
+TSS       & True Skill Statistic \\
+CSI       & Critical Success Index \\
+asinh     & Inverse hyperbolic sine (sign-preserving amplitude transform) \\
+\end{tabular}
+
+\vspace{0.8cm}
+
+\noindent\textbf{Symbols}
+\vspace{0.3cm}
+
+\noindent
+\begin{tabular}{l p{0.78\textwidth}}
+$w(\mathbf{r},t)$ & Winding-flux density (rate) at pixel $\mathbf{r}$ and time $t$ \\
+$W(\mathbf{r},t)$ & Accumulated total winding, $W[t]=\sum_{\tau\le t} w[\tau]$ \\
+$s$               & Softening constant of the asinh transform, $s=10^{3}$ \\
+$t_{\text{in}}$   & Number of input (history) frames per window \\
+$t_{\text{out}}$  & Number of forecast (future) frames per window \\
+$T$               & Total frames per window, $T=t_{\text{in}}+t_{\text{out}}$ \\
+$i,f,g,o$         & ConvLSTM input, forget, candidate and output gates \\
+$h_t,\,c_t$       & ConvLSTM hidden and cell state maps at time $t$ \\
+$\hat{x}_{t+1}$   & Model prediction of the frame at time $t{+}1$ \\
+$\mathrm{Mm}$     & Megametre, $10^{6}$~m (used for physical pixel scale) \\
+\end{tabular}

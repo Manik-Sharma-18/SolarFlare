@@ -1,0 +1,185 @@
+\chapter{Technical Architecture}
+\label{ch:arch}
+
+This chapter specifies the complete forecasting system: the winding-flux data
+and how it is represented (\S\ref{sec:data}), the Convolutional LSTM cell and the
+encoder--forecaster assembled from it (\S\ref{sec:convlstm}--\S\ref{sec:model}),
+and the training procedure (\S\ref{sec:training}). Every design choice that
+affects the reported results---in particular the spatial low-pass and the choice
+of the \emph{accumulated} winding field---is stated explicitly so that the
+outcome in Chapter~\ref{ch:results} can be read without hidden assumptions.
+
+\section{Data and representation}
+\label{sec:data}
+
+\paragraph{Winding-flux datacubes.}
+The input data are per-active-region datacubes derived from SDO/HMI
+observations. Each cube stores a single channel $\mathrm{wind}[H,W,T]$---the
+winding-flux density on an $H\times W$ spatial grid at $T$ successive times---
+together with a vector of acquisition timestamps at a nominal $12$-minute
+cadence. A small number of frames are missing; these are flagged by a sentinel
+timestamp of zero and are removed before any windowing, so that the model only
+ever sees physically contiguous sequences. The corpus used here comprises the
+available HARP cubes; one cube exhibiting pathological, noise-dominated values
+is excluded from every experiment.
+
+\paragraph{The signed field and its dynamic range.}
+Winding-flux density is a \emph{signed} pseudoscalar with a very large dynamic
+range: physical magnitudes span several orders of magnitude, and a few
+pathological pixels can reach far beyond the bulk of the distribution. Training
+on such raw values is unstable. The field is therefore passed through a
+sign-preserving \emph{inverse hyperbolic sine} (asinh) transform,
+\begin{equation}
+  \tilde{w} \;=\; \operatorname{asinh}\!\left(\frac{w}{s}\right),
+  \qquad s = 10^{3},
+  \label{eq:asinh}
+\end{equation}
+which is linear for $|w|\ll s$ and logarithmic for $|w|\gg s$. This compresses
+the extreme tail while preserving sign and small-signal structure; the softening
+constant $s=10^{3}$ was fixed by prior probing of the field's amplitude
+distribution. The transformed field is then rescaled by a robust ($99.5$th
+percentile) amplitude and clipped to $[-1,1]$ per cube, giving a normalised,
+zero-centred representation comparable across active regions.
+
+\paragraph{Rate versus accumulated total.}
+A property of the data that proves decisive in Chapter~\ref{ch:results} must be
+introduced here. The stored field behaves as a \emph{rate}: consecutive frames
+are only weakly correlated in space---a lag-of-one spatial correlation of about
+$0.2$ averaged over active regions---so the per-frame field carries little
+temporal persistence on its own. The physically meaningful quantity for
+forecasting is the \emph{accumulated total} winding, obtained by integrating the
+rate over time,
+\begin{equation}
+  W[t] \;=\; \sum_{\tau \le t} \mathrm{wind}[\tau],
+  \label{eq:cumsum}
+\end{equation}
+which is smooth and strongly persistent: its lag-of-one spatial correlation is
+about $0.98$, an order of magnitude firmer than the rate
+(Figure~\ref{fig:autocorr}). Unless stated otherwise, the model is trained and
+evaluated on the accumulated total $W$ of Eq.~\eqref{eq:cumsum}, consistent with
+the total winding used by the earliest experiments in this project. The
+distinction, and the care it demands when interpreting apparent skill, is
+analysed in Chapter~\ref{ch:results}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.66\textwidth]{figures/fig_autocorr.pdf}
+\caption[Rate vs.\ total persistence]{\textbf{The rate is nearly unpredictable;
+its integral is not.} Spatial correlation between winding frames separated by a
+given time lag, averaged over the active-region corpus (shaded band: one standard
+deviation across regions). The stored \emph{rate} decorrelates within minutes
+(red), whereas the \emph{accumulated total} remains strongly correlated for hours
+(blue). Forecasting the total is therefore tractable, but the skill it affords is
+dominated by persistence---the theme of Chapter~\ref{ch:results}.}
+\label{fig:autocorr}
+\end{figure}
+
+\paragraph{Spatial low-pass and downsampling.}
+Before entering the network each frame is area-downsampled to a fixed width and
+convolved with a separable Gaussian kernel. This is a deliberate, disclosed
+choice: it discards fine spatial detail in favour of the large-scale envelope of
+the field. The physical justification is that the small-scale content of the
+winding field is effectively unpredictable, whereas its large-scale envelope
+evolves coherently; removing the former lets the model concentrate its capacity
+on the part of the field that can actually be forecast. The cost---loss of
+sub-envelope structure---is real and is acknowledged wherever results are
+reported. Figure~\ref{fig:pipeline} summarises the full pipeline from the raw
+rate cube to the gap-aware training windows.
+
+\input{figures/fig_pipeline}
+
+\section{The Convolutional LSTM cell}
+\label{sec:convlstm}
+
+The temporal backbone of the model is the Convolutional LSTM (ConvLSTM) of
+\citet{shi2015}, which adapts the Long Short-Term Memory unit of
+\citet{hochreiter1997} to spatial data. A standard LSTM maintains a memory cell
+gated by learned nonlinearities but treats its input as a flat vector, destroying
+spatial structure. The ConvLSTM keeps the same gating logic but replaces every
+matrix multiplication with a two-dimensional convolution, so that the hidden
+state $h$ and cell state $c$ are \emph{feature maps} rather than vectors, and
+spatial locality is preserved throughout the recurrence.
+
+At each timestep the current input frame $x_t$ and the previous hidden state
+$h_{t-1}$ (both feature maps) are concatenated along the channel axis and passed
+through a single convolution whose output is split into four gate maps---input
+$i$, forget $f$, candidate $g$ and output $o$:
+\begin{align}
+  i_t &= \sigma\!\big(W_i * [\,x_t, h_{t-1}\,] + b_i\big), &
+  f_t &= \sigma\!\big(W_f * [\,x_t, h_{t-1}\,] + b_f\big), \nonumber\\
+  g_t &= \tanh\!\big(W_g * [\,x_t, h_{t-1}\,] + b_g\big), &
+  o_t &= \sigma\!\big(W_o * [\,x_t, h_{t-1}\,] + b_o\big),
+  \label{eq:gates}
+\end{align}
+where $*$ denotes convolution and $\sigma$ the logistic sigmoid. The cell and
+hidden states update as
+\begin{equation}
+  c_t = f_t \odot c_{t-1} + i_t \odot g_t,
+  \qquad
+  h_t = o_t \odot \tanh(c_t),
+  \label{eq:cell}
+\end{equation}
+with $\odot$ the elementwise product. Computing all four gates with one
+convolution is an efficiency choice; using ``same'' padding keeps the spatial
+resolution fixed through the recurrence. Two implementation details matter for
+stable training: the forget-gate bias $b_f$ is initialised to $+1$, so that the
+cell defaults to \emph{remembering} its state early in training and gradients
+propagate cleanly through time; and normalisation between stacked layers uses
+group normalisation, which carries no running statistics and is therefore safe
+to reuse across the unrolled decoding loop. Figure~\ref{fig:cell} traces the
+internal dataflow of a single cell.
+
+\input{figures/fig_convlstm_cell}
+
+\section{Encoder--forecaster model}
+\label{sec:model}
+
+The full model is an \emph{encoder--forecaster}: a stack of ConvLSTM layers first
+reads the observed history, and a second stack then generates the future frames
+autoregressively. Given an input clip of $T_{\text{in}}=10$ frames, the encoder
+applies Eq.~\eqref{eq:gates}--\eqref{eq:cell} layer by layer and frame by frame,
+accumulating the sequence into the hidden and cell states of every layer. No
+output is produced during encoding; its sole purpose is to summarise the history
+into the recurrent state.
+
+Decoding then rolls the state forward for $T_{\text{out}}=4$ steps. At each step
+the decoder stack advances the recurrent state and a $1\times1$ convolution maps
+the top hidden map to a single-channel prediction. Crucially the model predicts a
+\emph{residual}: the output is the previous frame plus a learned increment,
+\begin{equation}
+  \hat{x}_{t+1} = x_t + \Delta_\theta(h_t),
+  \label{eq:residual}
+\end{equation}
+so that a do-nothing network falls back to \emph{persistence}---copying the last
+frame---rather than collapsing to zero. This is the appropriate inductive bias
+for a strongly persistent field and, as Chapter~\ref{ch:results} makes clear, it
+also sets the correct baseline against which any genuine skill must be measured.
+The predicted frame is fed back as the next decoder input, so errors compound
+along the roll-out exactly as they would at deployment. Figure~\ref{fig:model}
+shows the encoder, the state hand-off, and the autoregressive decoder together.
+
+\input{figures/fig_encoder_forecaster}
+
+During training the fed-back frame may instead be the ground-truth frame with a
+tunable probability---\emph{teacher forcing}---which stabilises early optimisation
+by anchoring the roll-out to real data; at evaluation teacher forcing is switched
+off and the model runs purely on its own predictions.
+
+\section{Training procedure}
+\label{sec:training}
+
+The model is optimised with Adam and a per-frame regression loss (a smoothed
+$L_1$ / Huber criterion) between the predicted and true future frames, summed
+over the $T_{\text{out}}$ horizon. Gradients are clipped in norm to curb the
+occasional large update produced by rare high-amplitude frames, and the learning
+rate follows a cosine decay across the training budget.
+
+Evaluation follows a strict \emph{leave-one-active-region-out} protocol. Because
+successive $12$-minute frames within a cube are highly autocorrelated, any split
+that mixes frames from the same active region between training and test leaks
+information and inflates the apparent score. The model is therefore trained on
+the pooled windows of all active regions except one, and evaluated only on the
+held-out region it has never seen. All figures and metrics in
+Chapter~\ref{ch:results} are reported on such held-out regions, together with the
+persistence baseline of Eq.~\eqref{eq:residual}, so that model skill is always
+stated relative to the trivial forecast.

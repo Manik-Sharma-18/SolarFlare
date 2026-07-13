@@ -1,0 +1,138 @@
+\chapter{Solar Flares and the Forecasting Problem}
+\label{ch:intro}
+
+\section{Solar flares and space weather}
+
+A solar flare is a sudden, localised release of magnetic energy in the Sun's
+atmosphere, radiating across the electromagnetic spectrum on timescales of
+minutes. Flares originate in \emph{active regions}~(ARs): concentrations of
+strong, structured magnetic field that pierce the photosphere as sunspot
+groups. The energy that powers a flare is not thermal but magnetic---it is
+stored in electric currents that thread the coronal field and is liberated when
+the field reconnects into a lower-energy configuration. The largest events are
+frequently accompanied by coronal mass ejections, expelling magnetised plasma
+into interplanetary space.
+
+The practical importance of flares lies in their terrestrial impact, collectively
+termed \emph{space weather}. Flare radiation and the energetic particles and
+plasma that follow can disturb the ionosphere and disrupt high-frequency radio
+communication and satellite navigation, induce currents in power grids, raise
+radiation doses for astronauts and polar-route aircraft, and shorten the
+operational lifetime of spacecraft. Because the radiative onset of a flare
+arrives at Earth in a matter of minutes, useful mitigation depends on
+\emph{forecasting}---estimating the probability of a significant event
+\emph{before} it occurs, from the observable state of the source active region.
+
+Flares are classified by their peak soft X-ray flux in the $1$--$8$~\AA{} band
+measured by the GOES satellites, in a logarithmic scheme with classes A, B, C,
+M and X. Operationally the threshold of concern is the M class and above:
+$\geq$M events are energetic enough to drive the impacts listed above, yet rare
+enough that reliable anticipation remains an open problem. Throughout this
+thesis, ``a flare'' without further qualification refers to a $\geq$M event, and
+forecasting is framed on the active-region scale using photospheric magnetic
+data from the Helioseismic and Magnetic Imager (HMI) aboard the Solar Dynamics
+Observatory (SDO). Figure~\ref{fig:goes} shows the classification scale and the
+$\geq$M target regime.
+
+\input{figures/fig_goes_scale}
+
+\section{Why forecasting is hard}
+
+The difficulty of flare forecasting is fundamental rather than merely technical.
+Three properties conspire against it. First, the process is driven by the
+\emph{coronal} magnetic field and its currents, whereas routine observations
+resolve only the \emph{photospheric} field at the base of the atmosphere; the
+quantity that matters must be inferred from a projection of it. Second, flaring
+is governed by a threshold instability: an active region can store free energy
+for days and release it in seconds, so the mapping from a slowly evolving
+observable to a near-instantaneous event is weakly constrained. Third, $\geq$M
+flares are \emph{rare}. In any large catalogue the flaring minority is
+outnumbered by quiet examples by more than an order of magnitude, so a
+forecaster is judged not on raw accuracy---trivially maximised by always
+predicting ``quiet''---but on class-balanced skill scores such as the True Skill
+Statistic (TSS), which reward correct anticipation of the rare positive class.
+
+\section{The current forecasting landscape}
+\label{sec:landscape}
+
+Modern data-driven flare forecasting was catalysed by the availability of
+uniform, machine-readable magnetic-field summaries of active regions. The
+Space-weather HMI Active Region Patch (SHARP) product distils each AR's vector
+magnetogram into a handful of scalar parameters---total unsigned flux, total
+current helicity, twist, and related quantities. \citet{bobra2015} showed that a
+support-vector machine trained on these SHARP scalars produces a competitive
+$\geq$M forecaster, and established the SHARP feature vector as the de-facto
+baseline against which later work is measured.
+
+Two broad strands of deep learning followed. The first replaces hand-designed
+scalars with features learned directly from the magnetogram \emph{image}:
+\citet{huang2018} trained convolutional neural networks on line-of-sight
+magnetograms, letting the network discover spatial precursors rather than
+relying on pre-integrated summaries. The second exploits the \emph{temporal}
+evolution of an active region: \citet{liu2019} fed sequences of SHARP parameter
+vectors to a Long Short-Term Memory (LSTM) network, capturing the build-up of
+free energy over the hours preceding an event, while operational systems such as
+Deep Flare Net~\citep{nishizuka2018} combine engineered features with deep
+architectures for daily probabilistic forecasts. The recurring lesson of this
+literature is that both the \emph{spatial structure} of the field and its
+\emph{temporal history} carry predictive information; the best systems try to
+use both.
+
+Running alongside this forecasting work is a strand of solar physics that seeks
+a more physical descriptor of an active region's readiness to flare.
+\citet{mactaggart2021} demonstrated that emerging active regions carry a
+systematic magnetic \emph{winding}---a signed, topological measure of how field
+lines wrap around one another---providing direct evidence that twisted flux
+tubes create ARs. Magnetic winding flux is attractive precisely because it is
+rooted in the field's topology rather than its raw strength, and it is the
+central physical quantity of this thesis. Figure~\ref{fig:taxonomy} places these
+strands, and the present work, in a single picture.
+
+\input{figures/fig_taxonomy}
+
+\section{Winding flux and the gap addressed by this thesis}
+
+Magnetic winding flux is a \emph{signed} field defined pixel-by-pixel across an
+active region: it is positive where field lines wind one way and negative where
+they wind the other, and it is concentrated along polarity inversion lines,
+where flares originate. Existing work that uses winding reduces the map to a
+single number---its spatial integral---before forecasting. This integration is
+convenient but lossy: because winding is signed, oppositely wound regions cancel
+in the spatial mean, discarding exactly the localised, sign-resolved structure
+that distinguishes a flare-productive configuration from a quiet one.
+Figure~\ref{fig:windmap} makes the loss concrete: on a real active region the
+magnitude of the spatial mean is roughly twenty times smaller than the spatial
+standard deviation, so integrating to a scalar discards almost all of the
+structure. To date, no study has fed the \emph{two-dimensional} winding-flux map,
+with its spatial structure intact, to a deep model.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/fig_winding_map.pdf}
+\caption[Signed-mean cancellation]{\textbf{Why the spatial integral throws the
+signal away.} Left: a signed winding-flux map of a real active region, with
+oppositely wound (red/blue) regions. Right: the magnitude of the spatial mean is
+only a small fraction of the spatial standard deviation---the positive and
+negative winding very nearly cancel, so a single integrated scalar discards the
+localised structure that the two-dimensional map retains.}
+\label{fig:windmap}
+\end{figure}
+
+This thesis takes a first step into that gap. Rather than forecasting a flare
+label directly, it asks a more basic question about the winding-flux field
+itself: \emph{given a short history of winding-flux maps of an active region,
+can a spatiotemporal deep model predict how the field evolves?} A model that can
+anticipate the field's evolution has, in effect, learned the structure and
+dynamics that a downstream forecaster would need. The vehicle for this study is
+the Convolutional LSTM (ConvLSTM), a neural architecture that couples the spatial
+inductive bias of convolution with the temporal memory of an LSTM, and is
+therefore matched to the spatiotemporal nature of the data.
+
+The remainder of the thesis is organised as follows. Chapter~\ref{ch:arch}
+develops the technical architecture: the winding-flux data and its
+representation, the ConvLSTM cell and the encoder--forecaster built from it, and
+the training procedure. Chapter~\ref{ch:results} reports the forecasting
+results, states plainly what the model does and does not achieve, and analyses
+the outcome in light of the physical nature of the winding field---separating
+genuine predictive skill from the persistence that a smoothly evolving field
+affords for free.

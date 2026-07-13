@@ -1,0 +1,50 @@
+% Encoder--forecaster: encode 10 history frames, autoregressively decode 4 frames.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small, >=Latex,
+  frame/.style={draw, minimum size=6mm, fill=blue!7, rounded corners=1pt},
+  pframe/.style={draw, minimum size=6mm, fill=orange!14, rounded corners=1pt},
+  gframe/.style={draw, minimum size=6mm, fill=green!12, rounded corners=1pt},
+  stack/.style={draw, rounded corners=3pt, minimum height=20mm, align=center, fill=black!4},
+]
+% ----- input history frames -----
+\foreach \i/\x in {1/0,2/0.75,3/1.5}{\node[frame] (in\i) at (\x,3) {};}
+\node at (2.25,3) {$\cdots$};
+\foreach \i/\x in {9/3.0,10/3.75}{\node[frame] (in\i) at (\x,3) {};}
+\node[font=\scriptsize] at (1.9,3.7) {input history\ \ $x_1,\dots,x_{10}$ ($t_{\text{in}}{=}10$)};
+% ----- encoder -----
+\node[stack, minimum width=34mm] (enc) at (1.9,1.2) {\textbf{Encoder}\\ConvLSTM $\times L$};
+\foreach \i in {1,2,3,9,10}{\draw[->] (in\i) -- (in\i|-enc.north);}
+% ----- state hand-off -----
+\node[stack, minimum width=30mm, fill=black!7] (dec) at (7.4,1.2) {\textbf{Forecaster}\\ConvLSTM $\times L$};
+\draw[->, very thick] (enc.east) -- node[above,font=\scriptsize]{state $(h,c)$} (dec.west);
+% ----- decoded frames -----
+\foreach \i/\x in {11/6.65,12/7.4,13/8.15,14/8.9}{\node[pframe] (out\i) at (\x,3) {};}
+\node[gframe] (gt) at (9.9,3) {};
+\node[font=\scriptsize] at (7.8,3.7) {forecasts\ \ $\hat{x}_{11},\dots,\hat{x}_{14}$ ($t_{\text{out}}{=}4$)};
+\node[font=\scriptsize, green!45!black] at (9.9,3.7) {truth};
+\foreach \i in {11,12,13,14}{\draw[->] (out\i|-dec.north) -- (out\i);}
+% ----- residual + feedback -----
+\node[draw, circle, minimum size=4.5mm, inner sep=0pt, fill=orange!8] (plus) at (7.4,-0.4) {$+$};
+\node[font=\scriptsize, align=center] at (7.4,-1.15) {residual\\$\hat{x}_{t+1}=x_t+\Delta_\theta(h_t)$};
+\draw[->] (dec.south) -- (plus);
+\draw[->] (plus) -| (dec.south east) ;
+% feedback loop: prediction becomes next input
+\draw[->, orange!60!black] (out12.south) to[out=-90,in=90] ($(dec.north)+(0.9,0)$);
+\node[font=\scriptsize, orange!55!black] at (8.9,1.95) {feed back};
+% teacher forcing (train only)
+\draw[->, dashed, green!45!black] (gt.south) to[out=-90,in=60] ($(dec.north east)+(-0.2,0)$);
+\node[font=\scriptsize, green!45!black, align=center] at (10.7,1.2) {teacher\\forcing\\(train)};
+\end{tikzpicture}
+\caption[Encoder--forecaster]{\textbf{The encoder--forecaster model.} A stack of
+$L$ ConvLSTM layers encodes the $t_{\text{in}}{=}10$ history frames into the
+recurrent state $(h,c)$; a second stack then rolls the state forward for
+$t_{\text{out}}{=}4$ steps. Each step predicts a \emph{residual}
+$\hat{x}_{t+1}=x_t+\Delta_\theta(h_t)$ (Eq.~\ref{eq:residual}), so a null network
+falls back to persistence, and feeds its own prediction back as the next input.
+During training the fed-back frame may be replaced by the ground truth with
+probability equal to the teacher-forcing ratio (dashed); at evaluation the model
+runs purely autoregressively.}
+\label{fig:model}
+\end{figure}

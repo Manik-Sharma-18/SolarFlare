@@ -1,0 +1,42 @@
+% main.tex — IIT BHU IDD thesis, Manik Sharma (21174015)
+% Build: latexmk -pdf -outdir=build main.tex
+\documentclass{thesis}
+\usetikzlibrary{decorations.pathreplacing}
+
+% ---- Thesis identity (overrides class defaults) ----
+\thesistitle{Spatiotemporal Forecasting of Solar Magnetic Winding-Flux Maps with Convolutional LSTMs}
+\thesissubtitle{Toward Structure-Aware Solar Flare Prediction}
+
+\begin{document}
+
+% ---------- Frontmatter (Roman numerals) ----------
+\frontmatter
+\makeinnertitlepage
+\input{frontmatter/certificate}
+\input{frontmatter/declaration}
+\input{frontmatter/copyright}
+\input{frontmatter/acknowledgement}
+\input{frontmatter/abstract}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\input{frontmatter/symbols}
+\input{frontmatter/preface}
+
+% ---------- Main text (Arabic) ----------
+\mainmatter
+\input{chapters/1_intro}
+\input{chapters/2_architecture}
+\input{chapters/3_results}
+
+% ---------- References ----------
+\bibliographystyle{unsrtnat}
+\cleardoublepage
+\chapter*{References}
+\addcontentsline{toc}{chapter}{References}
+\begin{btSect}{bib/refs}
+  \btPrintAll
+\end{btSect}
+
+\end{document}
