@@ -3,6 +3,15 @@
 \documentclass{thesis}
 \usepackage{multirow}
 \usepackage{rotating}
+\usepackage{float}    % [H] to anchor tables in the text flow
+
+% --- Float placement: avoid stranded, half-empty float pages ---
+\renewcommand{\topfraction}{0.9}      % a text page may be up to 90% float at top
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}    % require only 7% text on a float+text page
+\renewcommand{\floatpagefraction}{0.85} % a dedicated float page must be >=85% full
+\setcounter{topnumber}{3}
+\setcounter{totalnumber}{4}
 \usetikzlibrary{decorations.pathreplacing}
 
 % ---- Thesis identity (overrides class defaults) ----
