@@ -221,7 +221,10 @@ The model is optimised with Adam and a per-frame regression loss (a smoothed
 $L_1$ / Huber criterion) between the predicted and true future frames, summed
 over the $T_{\text{out}}$ horizon. Gradients are clipped in norm to curb the
 occasional large update produced by rare high-amplitude frames, and the learning
-rate follows a cosine decay across the training budget.
+rate follows a cosine decay across the training budget. Table~\ref{tab:hparams}
+collects the complete data, model, and training configuration in one place.
+
+\input{figures/tab_hparams}
 
 Evaluation follows a strict \emph{leave-one-active-region-out} protocol. Because
 successive $12$-minute frames within a cube are highly autocorrelated, any split
@@ -231,7 +234,4 @@ the pooled windows of all active regions except one, and evaluated only on the
 held-out region it has never seen. All figures and metrics in
 Chapter~\ref{ch:results} are reported on such held-out regions, together with the
 persistence baseline of Eq.~\eqref{eq:residual}, so that model skill is always
-stated relative to the trivial forecast. Table~\ref{tab:hparams} collects the
-complete data, model, and training configuration in one place.
-
-\input{figures/tab_hparams}
+stated relative to the trivial forecast.
