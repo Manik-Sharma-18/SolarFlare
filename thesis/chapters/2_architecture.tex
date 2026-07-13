@@ -34,7 +34,13 @@ the active region. This diversity is the reason the evaluation is
 leave-one-active-region-out (\S\ref{sec:training}): the model must generalise
 across regions of different scale and structure, not merely interpolate within
 one. Table~\ref{tab:dataset} lists every region with its frame count and grid
-size.
+size. The corpus also carries the characteristic imprint of how the data are
+measured: regions observed near the solar limb suffer the \emph{limb effect},
+where line-of-sight foreshortening degrades the vector-field inversion and leaves
+part of the patch with unreliable, low-signal winding (visible in HARP~892 in
+Figure~\ref{fig:gallery}). Such near-limb passages are a known limitation of
+photospheric magnetography and bound the usable field of view for any method
+built on these maps.
 
 \input{figures/fig_ar_gallery}
 \input{figures/fig_dataset}
