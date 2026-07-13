@@ -96,7 +96,12 @@ Magnetic winding flux is a \emph{signed} field defined pixel-by-pixel across an
 active region: it is positive where field lines wind one way and negative where
 they wind the other, and it is concentrated along polarity inversion lines,
 where flares originate. Existing work that uses winding reduces the map to a
-single number---its spatial integral---before forecasting. This integration is
+single number---its spatial integral---before forecasting. The most direct
+example is recent: \citet{williams2026} derive scalar winding features from
+active-region maps and feed them to gradient-boosted trees (XGBoost), obtaining
+competitive flare-prediction skill and thereby confirming that winding carries
+genuine predictive signal---yet the map is collapsed to a handful of numbers
+before the classifier ever sees it. This integration is
 convenient but lossy: because winding is signed, oppositely wound regions cancel
 in the spatial mean, discarding exactly the localised, sign-resolved structure
 that distinguishes a flare-productive configuration from a quiet one.
