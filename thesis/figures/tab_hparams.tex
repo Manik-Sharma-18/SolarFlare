@@ -1,0 +1,35 @@
+\begin{table}[t]
+\centering
+\small
+\caption[Hyperparameters]{\textbf{Data, model, and training configuration.} The
+complete set of settings used for the leave-one-active-region-out experiment of
+Chapter~\ref{ch:results}.}
+\label{tab:hparams}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Group & Setting & Value \\
+\midrule
+\multirow{5}{*}{Data}
+  & forecasting target        & accumulated total winding $W$ \\
+  & input / output horizon    & $t_{\text{in}}=10$ / $t_{\text{out}}=4$ frames ($120$ / $48$ min) \\
+  & asinh softening           & $s = 10^{3}$; robust clip to $[-1,1]$ \\
+  & spatial low-pass          & Gaussian $\sigma = 1.5$, grid $88\times132$ \\
+  & windowing                 & gap-aware, stride $3$ \\
+\midrule
+\multirow{5}{*}{Model}
+  & architecture              & ConvLSTM encoder--forecaster \\
+  & layers / hidden width     & $3$ / $96$ \\
+  & kernel                    & $3\times3$, residual, group norm \\
+  & decoder                   & autoregressive, $1\times1$ conv head \\
+  & parameters                & $3.33$\,M \\
+\midrule
+\multirow{6}{*}{Training}
+  & optimiser                 & Adam, learning rate $10^{-3}$ \\
+  & schedule                  & cosine decay over $48$ epochs \\
+  & batch size                & $4$ \\
+  & gradient clipping         & max norm $1.0$ \\
+  & loss                      & smooth-$L_1$ (Huber) \\
+  & evaluation                & leave-one-AR-out vs.\ persistence \\
+\bottomrule
+\end{tabular}
+\end{table}

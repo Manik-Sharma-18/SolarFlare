@@ -33,10 +33,12 @@ regions of positive and negative winding meeting along the internal boundaries o
 the active region. This diversity is the reason the evaluation is
 leave-one-active-region-out (\S\ref{sec:training}): the model must generalise
 across regions of different scale and structure, not merely interpolate within
-one.
+one. Table~\ref{tab:dataset} lists every region with its frame count and grid
+size.
 
 \input{figures/fig_ar_gallery}
 \input{figures/fig_dataset}
+\input{figures/tab_dataset}
 
 \paragraph{Cadence and gaps.}
 The nominal cadence is $12$~minutes, and the overwhelming majority of steps
@@ -223,4 +225,7 @@ the pooled windows of all active regions except one, and evaluated only on the
 held-out region it has never seen. All figures and metrics in
 Chapter~\ref{ch:results} are reported on such held-out regions, together with the
 persistence baseline of Eq.~\eqref{eq:residual}, so that model skill is always
-stated relative to the trivial forecast.
+stated relative to the trivial forecast. Table~\ref{tab:hparams} collects the
+complete data, model, and training configuration in one place.
+
+\input{figures/tab_hparams}

@@ -1,0 +1,30 @@
+\begin{table}[t]
+\centering
+\small
+\caption[Dataset]{\textbf{The active-region corpus.} Valid frames (after sentinel
+removal) and native grid size for each of the $27$ HARP regions, at $12$-minute
+cadence. HARP~11930 is the held-out evaluation region; HARP~1149 is excluded as
+noise-dominated. Totals: $13{,}472$ frames, median $421$ per region.}
+\label{tab:dataset}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrcl@{\hspace{2em}}lrcl@{}}
+\toprule
+HARP & Frames & Grid & Role & HARP & Frames & Grid & Role \\
+\midrule
+833     & 1169 & $507\times976$  & train & 45      & 382 & $125\times323$  & train \\
+1028    & 1136 & $649\times1332$ & train & 116     & 375 & $213\times517$  & train \\
+2137    & 946  & $416\times757$  & train & 83      & 347 & $126\times283$  & train \\
+nov2025 & 837  & $437\times1042$ & train & may2024 & 342 & $440\times884$  & train \\
+2748    & 834  & $356\times787$  & train & 17      & 324 & $91\times173$   & train \\
+26      & 826  & $215\times473$  & train & 51      & 324 & $169\times417$  & train \\
+245     & 703  & $465\times1285$ & train & 49      & 309 & $239\times495$  & train \\
+86      & 687  & $566\times981$  & train & 11930   & 194 & $627\times877$  & \textbf{holdout} \\
+318     & 601  & $161\times442$  & train & 892     & 194 & $506\times1170$ & train \\
+156     & 579  & $220\times576$  & train & 221     & 156 & $77\times184$   & train \\
+43      & 496  & $219\times450$  & train & 316     & 140 & $123\times283$  & train \\
+8       & 492  & $200\times643$  & train & 10769   & 106 & $320\times638$  & train \\
+274     & 449  & $228\times567$  & train & 219     & 103 & $80\times176$   & train \\
+54      & 421  & $256\times702$  & train &         &     &                 &       \\
+\bottomrule
+\end{tabular}
+\end{table}
