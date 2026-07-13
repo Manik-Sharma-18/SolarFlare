@@ -23,23 +23,57 @@ ever sees physically contiguous sequences. The corpus used here comprises the
 available HARP cubes; one cube exhibiting pathological, noise-dominated values
 is excluded from every experiment.
 
+\paragraph{The active-region corpus.}
+The dataset comprises $27$ active regions and $13{,}472$ valid frames after
+sentinel removal, a median of $421$ frames per region
+(Figure~\ref{fig:dataset}); the regions vary widely in size---from a few hundred
+to over a thousand pixels on a side---and in the morphology of their winding
+field (Figure~\ref{fig:gallery}). Each map is signed and bipolar, with opposed
+regions of positive and negative winding meeting along the internal boundaries of
+the active region. This diversity is the reason the evaluation is
+leave-one-active-region-out (\S\ref{sec:training}): the model must generalise
+across regions of different scale and structure, not merely interpolate within
+one.
+
+\input{figures/fig_ar_gallery}
+\input{figures/fig_dataset}
+
+\paragraph{Cadence and gaps.}
+The nominal cadence is $12$~minutes, and the overwhelming majority of steps
+respect it exactly (Figure~\ref{fig:cadence}). A small fraction---under one per
+cent---are longer, appearing at integer multiples of the cadence where one or
+more acquisitions are missing. These gaps are why windowing must be
+\emph{gap-aware}: a window whose ten input and four target frames are not all
+consecutive in real time would splice across a temporal discontinuity and
+present the model with a jump that never occurs in deployment. Every training and
+evaluation window used in this thesis is gap-free by construction.
+
+\input{figures/fig_cadence}
+
 \paragraph{The signed field and its dynamic range.}
 Winding-flux density is a \emph{signed} pseudoscalar with a very large dynamic
-range: physical magnitudes span several orders of magnitude, and a few
-pathological pixels can reach far beyond the bulk of the distribution. Training
-on such raw values is unstable. The field is therefore passed through a
-sign-preserving \emph{inverse hyperbolic sine} (asinh) transform,
+range. Its distribution is sharply peaked at zero but heavy-tailed: the bulk of
+pixels lie near the origin while a few reach magnitudes of order $10^{7}$, several
+decades above the typical value (Figure~\ref{fig:norm}, left). Training a network
+directly on such values is unstable---the rare extremes dominate the loss and the
+gradients. The field is therefore passed through a sign-preserving \emph{inverse
+hyperbolic sine} (asinh) transform,
 \begin{equation}
   \tilde{w} \;=\; \operatorname{asinh}\!\left(\frac{w}{s}\right),
   \qquad s = 10^{3},
   \label{eq:asinh}
 \end{equation}
-which is linear for $|w|\ll s$ and logarithmic for $|w|\gg s$. This compresses
-the extreme tail while preserving sign and small-signal structure; the softening
-constant $s=10^{3}$ was fixed by prior probing of the field's amplitude
-distribution. The transformed field is then rescaled by a robust ($99.5$th
-percentile) amplitude and clipped to $[-1,1]$ per cube, giving a normalised,
-zero-centred representation comparable across active regions.
+which is linear for $|w|\ll s$ and logarithmic for $|w|\gg s$
+(Figure~\ref{fig:norm}, centre). This compresses the extreme tail while
+preserving sign and small-signal structure, turning the raw heavy-tailed
+distribution into the well-behaved, roughly symmetric one of
+Figure~\ref{fig:norm} (right); the softening constant $s=10^{3}$ was fixed by
+prior probing of the field's amplitude distribution. The transformed field is
+then rescaled by a robust ($99.5$th percentile) amplitude and clipped to
+$[-1,1]$ per cube, giving a normalised, zero-centred representation comparable
+across active regions.
+
+\input{figures/fig_normalization}
 
 \paragraph{The accumulated total winding.}
 The quantity this thesis forecasts is the \emph{accumulated total} winding: the
@@ -77,14 +111,21 @@ Chapter~\ref{ch:results}.}
 \paragraph{Spatial low-pass and downsampling.}
 Before entering the network each frame is area-downsampled to a fixed width and
 convolved with a separable Gaussian kernel. This is a deliberate, disclosed
-choice: it discards fine spatial detail in favour of the large-scale envelope of
-the field. The physical justification is that the small-scale content of the
-winding field is effectively unpredictable, whereas its large-scale envelope
-evolves coherently; removing the former lets the model concentrate its capacity
-on the part of the field that can actually be forecast. The cost---loss of
-sub-envelope structure---is real and is acknowledged wherever results are
-reported. Figure~\ref{fig:pipeline} summarises the full pipeline from the raw
-winding cube to the gap-aware training windows.
+choice, and the data motivate it directly. The winding field carries appreciable
+power at every spatial scale, right down to the pixel: its radially-averaged
+power spectrum falls off only slowly and never flattens into a noise floor
+(Figure~\ref{fig:psd}). That fine-scale content is not, however, useful for
+forecasting---the same small scales that the spectrum shows to be energetic are
+the ones whose frame-to-frame evolution is incoherent
+(Figure~\ref{fig:autocorr}), so they cannot be predicted. The low-pass discards
+this energetic-but-unpredictable detail in favour of the large-scale envelope,
+which evolves coherently, letting the model concentrate its capacity on the part
+of the field that can actually be forecast. The cost---loss of sub-envelope
+structure---is real and is acknowledged wherever results are reported.
+Figure~\ref{fig:pipeline} summarises the full pipeline from the raw winding cube
+to the gap-aware training windows.
+
+\input{figures/fig_psd}
 
 \input{figures/fig_pipeline}
 
