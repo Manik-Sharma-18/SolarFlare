@@ -50,14 +50,58 @@ Table~\ref{tab:results} states these numbers together.
 
 \input{figures/tab_results}
 
-\paragraph{Qualitative agreement.}
-Figure~\ref{fig:forecast} shows the forecasts on HARP~11930 for three windows
-drawn from different days. In each row the network sees ten frames up to the
-``latest input'' time and predicts the next four; the final prediction is placed
-beside the observed frame at the same instant. The large-scale organisation of
-the winding field---the opposed red and blue lobes and their boundary---is
-reproduced across the full horizon, and the predicted $t{+}48$~min frame is
-visually close to the observation.
+\paragraph{Frame-by-frame verification.}
+A forecast is judged not by how good the prediction looks but by how it differs
+from the truth. Figure~\ref{fig:triptych} places the two side by side at every
+lead time: the top row is the prediction, the middle row the observation at the
+same instant, and the bottom row their difference. Prediction and truth are
+near-identical at the large scale. The residuals, on the expanded scale of the
+bottom row, are small (a few per cent of the field amplitude) and---tellingly---
+\emph{structured}: they are not spread uniformly but concentrate in fine specks
+along the boundaries between the opposed winding lobes, precisely where the field
+has its sharpest gradients. This is the fine-scale content that
+\S\ref{sec:data} identified as temporally incoherent: the model reproduces the
+smooth envelope and errs only on the unpredictable detail, and the error grows
+frame by frame as that detail decorrelates.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_triptych.pdf}
+\caption[Forecast verification]{\textbf{Frame-by-frame verification on the
+held-out region.} For one window of HARP~11930: predicted field (top), observed
+field (middle), and their difference (bottom, on an expanded colour scale) at
+lead times $+12$ to $+48$~minutes. Errors are small, grow with lead time (per-frame
+MAE annotated), and localise along the sharp-gradient boundaries between winding
+lobes---the fine structure that cannot be forecast.}
+\label{fig:triptych}
+\end{figure}
+
+\paragraph{How error grows with lead time.}
+Figure~\ref{fig:horizon} traces the mean absolute error, averaged over all $61$
+held-out windows, as a function of lead time, for the model and for persistence.
+Both grow as the field decorrelates, but their relationship is informative: at
+$+12$~minutes the two coincide---over a single step the accumulated field barely
+changes, so nothing beats copying it---while at every later step the model pulls
+below persistence, the margin widening to $+48$~minutes. The model has therefore
+learned genuine short-term dynamics, and its advantage is largest exactly where
+persistence degrades fastest.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.66\textwidth]{figures/fig_skill_horizon.pdf}
+\caption[Error vs.\ lead time]{\textbf{Forecast error versus lead time.} Mean
+absolute error over all $61$ held-out windows for the ConvLSTM and for
+persistence (error bars: standard error). The two coincide at $+12$~minutes and
+diverge thereafter, the model staying below persistence at every subsequent step.}
+\label{fig:horizon}
+\end{figure}
+
+\paragraph{Qualitative agreement across the sequence.}
+Finally, Figure~\ref{fig:forecast} surveys three windows drawn from different days
+across the held-out sequence, showing the input, the four forecasts, and the
+observed frame. Sampled evenly, these span the range of per-window error (mean
+absolute error from $0.028$ down to $0.007$); across all of them the large-scale
+organisation of the winding field is reproduced over the full horizon.
 
 \begin{figure}[t]
 \centering
@@ -66,29 +110,8 @@ visually close to the observation.
 active region HARP~11930.} Each row is an independent window: the latest input
 frame, the four autoregressive forecasts at $+12,+24,+36,+48$~minutes, and the
 observed frame at $+48$~minutes, all stamped with their true UTC time. The model
-is trained only on the other $26$ regions. The accumulated-total field evolves
-slowly, and the network tracks its large-scale structure across the horizon.}
+is trained only on the other $26$ regions.}
 \label{fig:forecast}
-\end{figure}
-
-The three windows of Figure~\ref{fig:forecast} are sampled evenly across the
-held-out sequence and span the range of per-window error (mean absolute error
-from $0.028$ down to $0.007$). At the model's best---on the lowest-error
-windows---the forecast is near-indistinguishable from the observation, as
-Figure~\ref{fig:forecast_best} shows: every $+48$-minute prediction reproduces the
-observed field almost exactly, at a per-window error of about $0.005$, half the
-corpus median.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/fig_forecast_best.pdf}
-\caption[Best-case held-out forecasts]{\textbf{Lowest-error forecasts on the
-held-out active region HARP~11930.} As Figure~\ref{fig:forecast}, but for the
-three windows with the smallest forecast error (per-window MAE
-$\approx0.005$). The predicted and observed $+48$-minute frames are
-near-identical, illustrating the model's agreement where the field is most
-regular.}
-\label{fig:forecast_best}
 \end{figure}
 
 \section{Discussion}
