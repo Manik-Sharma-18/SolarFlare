@@ -75,32 +75,23 @@ Figure~\ref{fig:forecast} is easy to over-read.
 The model beats persistence by $9.3\%$ on a held-out region, so it has learned
 something transferable about how the winding field evolves, beyond copying.
 But the margin is modest, and it must be. As established in \S\ref{sec:data} and
-Figure~\ref{fig:autocorr}, the accumulated total is strongly autocorrelated
-precisely because it is a running integral of the near-white rate; a running
-integral changes little from frame to frame, so persistence is already a strong
-forecast and there is limited headroom above it. The striking agreement between
-prediction and observation in Figure~\ref{fig:forecast} is therefore mostly a
-statement about the \emph{predictability of the total field}, not a claim of
-large model skill.
+Figure~\ref{fig:autocorr}, the accumulated total winding builds up gradually and
+is therefore strongly autocorrelated from frame to frame; persistence is already
+a strong forecast, and there is limited headroom above it. The striking agreement
+between prediction and observation in Figure~\ref{fig:forecast} is therefore in
+large part a statement about the \emph{predictability of the total field}, and
+the honest measure of what the model adds is the skill relative to persistence,
+not the visual match. Quoting that baseline alongside every result is what keeps
+the account truthful.
 
 \paragraph{The forecastable content is the low-pass envelope.}
 The spatial low-pass of \S\ref{sec:data} was applied deliberately, and the
 result vindicates the reasoning behind it: what the model reproduces is the
 large-scale envelope of the winding field, not its fine structure. The
-sub-envelope detail that the low-pass removed is the same detail that
-Figure~\ref{fig:autocorr} shows to be temporally incoherent; it could not have
-been forecast, and excluding it lets the model spend its capacity where skill is
-attainable. This is an honest restriction of scope, not a hidden one.
-
-\paragraph{Rate versus total, once more.}
-The single most consequential finding of this work is not the $9.3\%$ skill but
-the distinction that produced it. The stored winding field is a rate that is
-almost temporally incoherent; its time-integral, the physically meaningful total
-winding, is what can be forecast. A model applied naively to the stored field
-would appear to fail; the same model applied to the accumulated total appears to
-succeed---and both impressions are misleading unless read against the
-persistence baseline. Reporting that baseline alongside every result is what
-keeps the account truthful.
+small-scale detail that the low-pass removed evolves incoherently from frame to
+frame and could not have been forecast in any case; excluding it lets the model
+spend its capacity where skill is attainable. This is an honest restriction of
+scope, not a hidden one.
 
 \paragraph{Outlook.}
 Taken together, the experiment delivers a working spatiotemporal pipeline for

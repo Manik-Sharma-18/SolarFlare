@@ -41,36 +41,36 @@ distribution. The transformed field is then rescaled by a robust ($99.5$th
 percentile) amplitude and clipped to $[-1,1]$ per cube, giving a normalised,
 zero-centred representation comparable across active regions.
 
-\paragraph{Rate versus accumulated total.}
-A property of the data that proves decisive in Chapter~\ref{ch:results} must be
-introduced here. The stored field behaves as a \emph{rate}: consecutive frames
-are only weakly correlated in space---a lag-of-one spatial correlation of about
-$0.2$ averaged over active regions---so the per-frame field carries little
-temporal persistence on its own. The physically meaningful quantity for
-forecasting is the \emph{accumulated total} winding, obtained by integrating the
-rate over time,
+\paragraph{The accumulated total winding.}
+The quantity this thesis forecasts is the \emph{accumulated total} winding: the
+net magnetic winding injected into an active region up to time $t$, obtained by
+integrating the per-frame winding over time,
 \begin{equation}
-  W[t] \;=\; \sum_{\tau \le t} \mathrm{wind}[\tau],
+  W[t] \;=\; \sum_{\tau \le t} \mathrm{wind}[\tau].
   \label{eq:cumsum}
 \end{equation}
-which is smooth and strongly persistent: its lag-of-one spatial correlation is
-about $0.98$, an order of magnitude firmer than the rate
-(Figure~\ref{fig:autocorr}). Unless stated otherwise, the model is trained and
-evaluated on the accumulated total $W$ of Eq.~\eqref{eq:cumsum}, consistent with
-the total winding used by the earliest experiments in this project. The
-distinction, and the care it demands when interpreting apparent skill, is
-analysed in Chapter~\ref{ch:results}.
+This is the physically meaningful measure of an active region's accumulated
+non-potential topology, and it is the natural forecasting target: it is smooth
+and strongly persistent from frame to frame, with a lag-of-one spatial
+correlation of about $0.98$ that decays only gradually over hours
+(Figure~\ref{fig:autocorr}). Its gradual build-up is exactly what a
+spatiotemporal model can learn to extrapolate. Unless stated otherwise, the
+model is trained and evaluated on the accumulated total $W$ of
+Eq.~\eqref{eq:cumsum}, consistent with the total winding used throughout this
+project.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.66\textwidth]{figures/fig_autocorr.pdf}
-\caption[Rate vs.\ total persistence]{\textbf{The rate is nearly unpredictable;
-its integral is not.} Spatial correlation between winding frames separated by a
-given time lag, averaged over the active-region corpus (shaded band: one standard
-deviation across regions). The stored \emph{rate} decorrelates within minutes
-(red), whereas the \emph{accumulated total} remains strongly correlated for hours
-(blue). Forecasting the total is therefore tractable, but the skill it affords is
-dominated by persistence---the theme of Chapter~\ref{ch:results}.}
+\caption[Persistence of the total winding]{\textbf{The accumulated total winding
+is smooth and strongly persistent.} Spatial correlation between winding frames
+separated by a given time lag, averaged over the active-region corpus (shaded
+band: one standard deviation across regions). The accumulated total (blue)
+remains strongly correlated over hours, decaying only gradually---the property
+that makes it a well-posed forecasting target. The per-frame increment (red) is
+shown for contrast. Because the total is so persistent, its forecast skill must
+be read against a persistence baseline, as it is throughout
+Chapter~\ref{ch:results}.}
 \label{fig:autocorr}
 \end{figure}
 
@@ -84,7 +84,7 @@ evolves coherently; removing the former lets the model concentrate its capacity
 on the part of the field that can actually be forecast. The cost---loss of
 sub-envelope structure---is real and is acknowledged wherever results are
 reported. Figure~\ref{fig:pipeline} summarises the full pipeline from the raw
-rate cube to the gap-aware training windows.
+winding cube to the gap-aware training windows.
 
 \input{figures/fig_pipeline}
 

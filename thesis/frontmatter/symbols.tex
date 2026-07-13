@@ -31,8 +31,8 @@ asinh     & Inverse hyperbolic sine (sign-preserving amplitude transform) \\
 
 \noindent
 \begin{tabular}{l p{0.78\textwidth}}
-$w(\mathbf{r},t)$ & Winding-flux density (rate) at pixel $\mathbf{r}$ and time $t$ \\
-$W(\mathbf{r},t)$ & Accumulated total winding, $W[t]=\sum_{\tau\le t} w[\tau]$ \\
+$w(\mathbf{r},t)$ & Per-frame winding-flux density at pixel $\mathbf{r}$, time $t$ \\
+$W(\mathbf{r},t)$ & Accumulated total winding, $W[t]=\sum_{\tau\le t} w[\tau]$ (forecasting target) \\
 $s$               & Softening constant of the asinh transform, $s=10^{3}$ \\
 $t_{\text{in}}$   & Number of input (history) frames per window \\
 $t_{\text{out}}$  & Number of forecast (future) frames per window \\

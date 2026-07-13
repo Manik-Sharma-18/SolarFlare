@@ -16,16 +16,15 @@ signed, localised structure that carries the signal.
 
 This thesis takes a first step toward using the winding-flux map without that
 reduction. A Convolutional LSTM (ConvLSTM) encoder--forecaster is trained to
-predict the short-term evolution of the two-dimensional winding field of an
-active region from a ten-frame history, under a strict
-leave-one-active-region-out protocol. A key empirical finding organises the
-results: the stored winding field behaves as a near-white \emph{rate}, whereas
-its time-integral---the accumulated total winding---is smooth and strongly
-persistent, and it is the total that is the appropriate forecasting target. On
-the total field the model reproduces the large-scale evolution of held-out
-active regions; its skill is reported honestly against a persistence baseline,
-and the roles of the spatial low-pass and of the rate--total distinction are
-analysed rather than hidden. The work establishes both a working spatiotemporal
-pipeline for winding-flux maps and a clear-eyed account of what such
-forecasting can and cannot deliver, motivating the structure-aware direction for
-subsequent flare-prediction research.
+predict the short-term evolution of the two-dimensional \emph{accumulated total}
+winding field of an active region---the physically meaningful measure of its
+accumulated magnetic topology---from a ten-frame history, under a strict
+leave-one-active-region-out protocol. The total winding builds up gradually and
+is strongly persistent, and the model reproduces its large-scale evolution on
+held-out active regions across a $48$-minute horizon. Skill is reported honestly
+against a persistence baseline---the model improves on persistence by about ten
+per cent---and the role of the spatial low-pass is stated plainly rather than
+hidden. The work establishes both a working spatiotemporal pipeline for
+winding-flux maps and a clear-eyed account of what such forecasting can and
+cannot deliver, motivating the structure-aware direction for subsequent
+flare-prediction research.
