@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption[Forecast results]{\textbf{Forecast accuracy on the held-out active
+region.} Mean absolute error (normalised units) over all $61$ gap-aware windows
+of HARP~11930, for the ConvLSTM and for the persistence baseline, with the skill
+of Eq.~\eqref{eq:skill}. The model was trained only on the other $26$ regions.}
+\label{tab:results}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Forecaster (held-out HARP~11930, $48$-min horizon) & MAE \\
+\midrule
+Persistence (copy last observed frame)             & $0.0117$ \\
+ConvLSTM encoder--forecaster (this work)           & $\mathbf{0.0106}$ \\
+\midrule
+\textbf{Skill over persistence} & \multicolumn{1}{r}{$\mathbf{+9.3\%}$} \\
+\bottomrule
+\end{tabular}
+\end{table}

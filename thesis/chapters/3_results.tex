@@ -39,13 +39,25 @@ reduction in mean absolute error relative to persistence,
 \section{Forecasting the held-out active region}
 \label{sec:forecast}
 
-Figure~\ref{fig:forecast} shows the model's forecasts on HARP~11930 for three
-windows drawn from different days. In each row the network sees ten frames up to
-the ``latest input'' time and predicts the next four; the final prediction is
-placed beside the observed frame at the same instant. The large-scale
-organisation of the winding field---the opposed red and blue lobes and their
-boundary---is reproduced across the full $48$-minute horizon, and the predicted
-$t{+}48$~min frame is visually close to the observation.
+\paragraph{Headline result.}
+On the held-out region HARP~11930---never seen in training---the ConvLSTM
+forecasts the accumulated winding field over a $48$-minute horizon with a mean
+absolute error of $\mathbf{0.0106}$, against $\mathbf{0.0117}$ for the
+persistence baseline: a skill of $\mathbf{+9.3\%}$ by Eq.~\eqref{eq:skill},
+measured over all $61$ gap-aware windows of the region. The model therefore
+generalises across active regions and improves on the trivial forecast.
+Table~\ref{tab:results} states these numbers together.
+
+\input{figures/tab_results}
+
+\paragraph{Qualitative agreement.}
+Figure~\ref{fig:forecast} shows the forecasts on HARP~11930 for three windows
+drawn from different days. In each row the network sees ten frames up to the
+``latest input'' time and predicts the next four; the final prediction is placed
+beside the observed frame at the same instant. The large-scale organisation of
+the winding field---the opposed red and blue lobes and their boundary---is
+reproduced across the full horizon, and the predicted $t{+}48$~min frame is
+visually close to the observation.
 
 \begin{figure}[t]
 \centering
@@ -58,12 +70,6 @@ is trained only on the other $26$ regions. The accumulated-total field evolves
 slowly, and the network tracks its large-scale structure across the horizon.}
 \label{fig:forecast}
 \end{figure}
-
-Quantitatively, over all $61$ held-out windows the model attains a mean absolute
-error of $0.0106$ (in the normalised units of \S\ref{sec:data}) against
-$0.0117$ for persistence, a skill of $+9.3\%$ by Eq.~\eqref{eq:skill}. The
-forecaster therefore does slightly better than copying the last frame, on a
-region it was never trained on.
 
 \section{Discussion}
 \label{sec:discussion}
