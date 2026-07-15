@@ -12,28 +12,64 @@ class ConvLSTMCell(nn.Module):
     fused conv over ``cat(x, h_prev)``.
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, kernel_size: int, bias: bool = True):
+    def __init__(self, input_dim: int, hidden_dim: int, kernel_size: int,
+                 dilation: int = 1, bias: bool = True,
+                 recurrent_init: str = "default",
+                 depthwise_separable: bool = False):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
-        self.padding = kernel_size // 2
+        self.dilation = dilation
+        self.padding = dilation * (kernel_size // 2)
+        self.depthwise_separable = depthwise_separable
+        ch = input_dim + hidden_dim
 
-        self.conv = nn.Conv2d(
-            in_channels=input_dim + hidden_dim,
-            out_channels=4 * hidden_dim,
-            kernel_size=kernel_size,
-            padding=self.padding,
-            bias=bias,
-        )
+        if depthwise_separable:
+            self.depthwise = nn.Conv2d(
+                in_channels=ch, out_channels=ch,
+                kernel_size=kernel_size, padding=self.padding,
+                dilation=dilation, groups=ch, bias=False,
+            )
+            self.pointwise = nn.Conv2d(
+                in_channels=ch, out_channels=4 * hidden_dim,
+                kernel_size=1, bias=bias,
+            )
+            self.conv = None
+        else:
+            self.conv = nn.Conv2d(
+                in_channels=ch, out_channels=4 * hidden_dim,
+                kernel_size=kernel_size, padding=self.padding,
+                dilation=dilation, bias=bias,
+            )
+            self.depthwise = self.pointwise = None
 
         self._init_forget_bias()
+        if recurrent_init == "orthogonal":
+            self._init_recurrent_orthogonal()
 
     def _init_forget_bias(self):
-        """Set forget-gate bias to 1.0 for better gradient flow."""
+        """Set forget-gate bias to 1.0 for better gradient flow.
+        Bias lives on the output-producing conv (pointwise for DW path,
+        fused gate conv otherwise)."""
+        out_conv = self.pointwise if self.depthwise_separable else self.conv
         with torch.no_grad():
-            if self.conv.bias is not None:
-                self.conv.bias[self.hidden_dim:2 * self.hidden_dim].fill_(1.0)
+            if out_conv.bias is not None:
+                out_conv.bias[self.hidden_dim:2 * self.hidden_dim].fill_(1.0)
+
+    def _init_recurrent_orthogonal(self):
+        """Orthogonal init on the recurrent slice. For the fused path this
+        is `conv.weight[:, input_dim:, :, :]`. For the depthwise path,
+        recurrent channel mixing happens at the pointwise layer, so
+        orthogonalize `pointwise.weight[:, input_dim:, :, :]`."""
+        out_conv = self.pointwise if self.depthwise_separable else self.conv
+        with torch.no_grad():
+            W = out_conv.weight  # (4H, in+H, k, k) or (4H, in+H, 1, 1)
+            recur = W[:, self.input_dim:, :, :].contiguous()
+            shape = recur.shape
+            flat = recur.view(shape[0], -1)
+            nn.init.orthogonal_(flat)
+            W[:, self.input_dim:, :, :] = flat.view(shape)
 
     def forward(
         self,
@@ -51,7 +87,10 @@ class ConvLSTMCell(nn.Module):
             ``(h_next, c_next)``.
         """
         combined = torch.cat([x, h_prev], dim=1)
-        gates = self.conv(combined)
+        if self.depthwise_separable:
+            gates = self.pointwise(self.depthwise(combined))
+        else:
+            gates = self.conv(combined)
         i, f, g, o = torch.split(gates, self.hidden_dim, dim=1)
 
         i = torch.sigmoid(i)

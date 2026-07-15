@@ -17,13 +17,13 @@ active regions and evaluated on a single held-out region, HARP~11930, that it
 never sees during training. The noisy region flagged in \S\ref{sec:data} is
 excluded from every split. Each cube contributes only windows whose ten input
 and four target frames are consecutive in real time at the nominal $12$-minute
-cadence, so no window straddles an acquisition gap; this yields $2{,}784$
-training windows and $61$ held-out windows. All frames are the accumulated total
+cadence, so no window straddles an acquisition gap; this yields $2{,}093$
+training windows and $46$ held-out windows. All frames are the accumulated total
 winding of Eq.~\eqref{eq:cumsum}, asinh-normalised and low-passed onto a fixed
 $88\times132$ grid.
 
 The model is a three-layer ConvLSTM encoder--forecaster ($3.3$~million
-parameters, hidden width $96$), trained for $48$ epochs with Adam, a cosine
+parameters, hidden width $96$), trained for $130$ epochs with Adam, a cosine
 learning-rate decay, and gradient-norm clipping, forecasting $t_{\text{out}}=4$
 frames ($48$~minutes) from $t_{\text{in}}=10$ history frames ($120$~minutes). The
 reference against which it is judged is the \emph{persistence} forecast---copying
@@ -36,17 +36,49 @@ reduction in mean absolute error relative to persistence,
   \label{eq:skill}
 \end{equation}
 
+\paragraph{Convergence.}
+Figure~\ref{fig:losscurve} shows the training trace. The pooled-training loss
+falls to its floor within the first ten epochs---the encoder--forecaster fits the
+training regions quickly---while the held-out error tells the more honest story:
+it hovers around the persistence level throughout, settling only a little below
+it. This gap between a low training loss and a persistence-bound held-out error
+is not underfitting; it is the persistence ceiling of \S\ref{sec:data} made
+visible. Because the held-out curve is noisy from epoch to epoch, the reported
+result is the \emph{final} model, not a checkpoint hand-picked at one of its
+dips---selecting on the held-out region would be a form of test-set tuning.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_losscurve.pdf}
+\caption[Training curve]{\textbf{Training trace of the reported model.} Left:
+Huber training loss on the pooled $26$-region set, which saturates within ten
+epochs. Right: mean absolute error on the held-out region HARP~11930 versus the
+persistence baseline (dashed); it hovers at the persistence floor and settles
+just below, the final reported value marked. The generalisation gap is the
+persistence ceiling, not underfitting.}
+\label{fig:losscurve}
+\end{figure}
+
 \section{Forecasting the held-out active region}
 \label{sec:forecast}
 
 \paragraph{Headline result.}
 On the held-out region HARP~11930---never seen in training---the ConvLSTM
 forecasts the accumulated winding field over a $48$-minute horizon with a mean
-absolute error of $\mathbf{0.0106}$, against $\mathbf{0.0117}$ for the
-persistence baseline: a skill of $\mathbf{+9.3\%}$ by Eq.~\eqref{eq:skill},
-measured over all $61$ gap-aware windows of the region. The model therefore
-generalises across active regions and improves on the trivial forecast.
-Table~\ref{tab:results} states these numbers together.
+absolute error of $\mathbf{0.0105}$, against $\mathbf{0.0115}$ for the
+persistence baseline: a skill of $\mathbf{+8.6\%}$ by Eq.~\eqref{eq:skill},
+measured over all $46$ gap-aware windows of the region. A window-level bootstrap
+($B=20{,}000$) places this skill at $+8.6\%$ with a $95\%$ confidence interval of
+$[+6.8\%,+10.3\%]$ and $P(\text{skill}>0)=1.000$: the improvement is
+statistically unambiguous, not a fluctuation. This is the \emph{final}
+model at the end of training; no checkpoint is chosen on the held-out region, so
+the number carries no test-set selection. The model therefore generalises across
+active regions and improves on the trivial forecast.
+Table~\ref{tab:results} states these numbers together, alongside a scalar-mean
+baseline that collapses each frame to its single spatial-average value: its error
+is nearly two orders of magnitude larger, a direct measurement that almost all of
+the field's predictable content lives in the spatial structure the scalar
+integral discards---the premise this thesis is built on.
 
 \input{figures/tab_results}
 
@@ -64,11 +96,12 @@ has its sharpest gradients. This is the fine-scale content that
 smooth envelope and errs only on the unpredictable detail, and the error grows
 frame by frame as that detail decorrelates.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_triptych.pdf}
 \caption[Forecast verification]{\textbf{Frame-by-frame verification on the
-held-out region.} For one window of HARP~11930: predicted field (top), observed
+held-out region.} For a representative \emph{median-error} window of HARP~11930
+(not the best case): predicted field (top), observed
 field (middle), and their difference (bottom, on an expanded colour scale) at
 lead times $+12$ to $+48$~minutes. Errors are small, grow with lead time (per-frame
 MAE annotated), and localise along the sharp-gradient boundaries between winding
@@ -77,7 +110,7 @@ lobes---the fine structure that cannot be forecast.}
 \end{figure}
 
 \paragraph{How error grows with lead time.}
-Figure~\ref{fig:horizon} traces the mean absolute error, averaged over all $61$
+Figure~\ref{fig:horizon} traces the mean absolute error, averaged over all $46$
 held-out windows, as a function of lead time, for the model and for persistence.
 Both grow as the field decorrelates, but their relationship is informative: at
 $+12$~minutes the two coincide---over a single step the accumulated field barely
@@ -86,13 +119,14 @@ below persistence, the margin widening to $+48$~minutes. The model has therefore
 learned genuine short-term dynamics, and its advantage is largest exactly where
 persistence degrades fastest.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.66\textwidth]{figures/fig_skill_horizon.pdf}
 \caption[Error vs.\ lead time]{\textbf{Forecast error versus lead time.} Mean
-absolute error over all $61$ held-out windows for the ConvLSTM and for
-persistence (error bars: standard error). The two coincide at $+12$~minutes and
-diverge thereafter, the model staying below persistence at every subsequent step.}
+absolute error over all $46$ held-out windows for the ConvLSTM and for
+persistence (error bars: standard error). The two nearly coincide at
+$+12$~minutes and diverge thereafter, the model staying below persistence at
+every step.}
 \label{fig:horizon}
 \end{figure}
 
@@ -100,10 +134,10 @@ diverge thereafter, the model staying below persistence at every subsequent step
 Finally, Figure~\ref{fig:forecast} surveys three windows drawn from different days
 across the held-out sequence, showing the input, the four forecasts, and the
 observed frame. Sampled evenly, these span the range of per-window error (mean
-absolute error from $0.028$ down to $0.007$); across all of them the large-scale
+absolute error from $0.027$ down to $0.007$); across all of them the large-scale
 organisation of the winding field is reproduced over the full horizon.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_forecast_loo.pdf}
 \caption[Held-out forecasts]{\textbf{Winding-flux forecasts on the held-out
@@ -114,6 +148,49 @@ is trained only on the other $26$ regions.}
 \label{fig:forecast}
 \end{figure}
 
+\section{Does the loss matter? A reweighting ablation}
+\label{sec:ablation}
+
+The result above uses a plain smooth-$L_1$ (Huber) loss weighted equally over
+every pixel and every lead time. On a persistence-dominated target it is worth
+asking whether a loss that concentrates on the parts of the field where
+persistence is weakest could extract more skill. Two reweightings were tested
+against the plain loss under an identical, quicker training configuration so the
+comparison is controlled: a \emph{delta} loss that weights each pixel by its
+deviation from persistence, $|\text{target}-\text{persistence}|$, to force
+capacity onto the moving winding lobes and away from the flat, already-easy
+regions; and a \emph{horizon} loss that upweights the later lead-times, where
+Figure~\ref{fig:horizon} shows the model's advantage is largest. Each was scored
+by the same unweighted skill of Eq.~\eqref{eq:skill}, both over all held-out
+windows and restricted to the \emph{active} windows in which the field actually
+moves (per-window persistence error above the median).
+
+\input{figures/tab_ablation}
+
+The outcome (Table~\ref{tab:ablation}, Figure~\ref{fig:ablation}) is a clean
+negative result. Neither reweighting beats the plain loss. The horizon loss does
+exactly what it is designed to---it trades early-step skill for late-step
+skill---but the net is a wash. The delta loss is actively harmful: by
+down-weighting the flat regions that persistence already forecasts well, it lets
+the model degrade them, and the overall error rises far above persistence. The
+lesson is the same one the persistence baseline teaches throughout this chapter:
+on the accumulated total, the plain loss already sits at the thin achievable
+margin, and skill cannot be manufactured by moving the loss around. What the
+active-window column does show is where the genuine skill lives---it is uniformly
+larger there than over all windows, confirming that the model's advantage is
+concentrated in the windows where the winding field is changing.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.74\textwidth]{figures/fig_ablation.pdf}
+\caption[Loss ablation]{\textbf{Loss-reweighting ablation.} Skill over
+persistence for the three training losses, measured over all held-out windows
+(blue) and over the active windows only (orange). Plain Huber is best; the
+horizon reweighting is a wash and the delta reweighting falls well below the
+persistence baseline (zero line).}
+\label{fig:ablation}
+\end{figure}
+
 \section{Discussion}
 \label{sec:discussion}
 
@@ -121,7 +198,7 @@ Three points must be made plainly, because the visual quality of
 Figure~\ref{fig:forecast} is easy to over-read.
 
 \paragraph{The skill is real but small, and persistence-dominated.}
-The model beats persistence by $9.3\%$ on a held-out region, so it has learned
+The model beats persistence by $8.6\%$ on a held-out region, so it has learned
 something transferable about how the winding field evolves, beyond copying.
 But the margin is modest, and it must be. As established in \S\ref{sec:data} and
 Figure~\ref{fig:autocorr}, the accumulated total winding builds up gradually and

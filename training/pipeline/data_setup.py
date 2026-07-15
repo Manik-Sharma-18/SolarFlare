@@ -23,7 +23,10 @@ from solarflare_data.loader import create_dataloaders
 
 
 def _resolve_flare_threshold(config: Dict[str, Any], oversample_weight: float):
-    if oversample_weight <= 1.0:
+    # Densities must also be computed when density_sampler is enabled,
+    # even if the legacy flare_oversample_weight is 1.0 (disabled).
+    density_sampler = (config.get("data", {}) or {}).get("density_sampler") or {}
+    if oversample_weight <= 1.0 and not density_sampler.get("enabled"):
         return None
     return config.get("evaluation", {}).get("extreme_threshold", 0.277)
 
@@ -59,6 +62,7 @@ def _build_datasets(config: Dict[str, Any]) -> Tuple[Any, Any, Any, Dict[str, An
             window_size=data_cfg.get("window_size"),
             window_stride=data_cfg.get("window_stride"),
             test_cubes=data_cfg.get("test_cubes"),
+            val_cubes=data_cfg.get("val_cubes"),
             **common,
         )
     if data_cfg.get("use_preprocessed", False):
@@ -87,7 +91,9 @@ def build_loaders(
     train_dataset, val_dataset, test_dataset, metadata = _build_datasets(config)
 
     train_flare_flags = metadata.get("train_flare_flags")
+    train_extreme_densities = metadata.get("train_extreme_densities")
     oversample = config["data"].get("flare_oversample_weight", 1.0)
+    density_sampler = config["data"].get("density_sampler")
 
     train_loader, val_loader, test_loader = create_dataloaders(
         train_dataset, val_dataset, test_dataset,
@@ -97,9 +103,21 @@ def build_loaders(
         seed=config.get("seed", 42),
         train_flare_flags=train_flare_flags,
         flare_oversample_weight=oversample,
+        train_extreme_densities=train_extreme_densities,
+        density_sampler=density_sampler,
     )
 
-    if train_flare_flags and oversample > 1.0:
+    if density_sampler and density_sampler.get("enabled"):
+        n_nonzero = sum(
+            1 for d in (train_extreme_densities or [])
+            if d >= density_sampler.get("drop_threshold", 0.0)
+        )
+        n_total = len(train_extreme_densities or [])
+        print(
+            f"  Density sampling: {n_nonzero}/{n_total} windows above "
+            f"drop_threshold={density_sampler.get('drop_threshold', 0.0)}"
+        )
+    elif train_flare_flags and oversample > 1.0:
         n_flare = sum(train_flare_flags)
         n_total = len(train_flare_flags)
         print(

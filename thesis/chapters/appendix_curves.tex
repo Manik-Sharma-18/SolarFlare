@@ -1,0 +1,28 @@
+\chapter{Ablation training curves}
+\label{app:curves}
+
+For completeness, Figure~\ref{fig:ablation_curves} gives the training traces of
+the three loss-reweighting arms of \S\ref{sec:ablation}, under the identical
+quick-training configuration used for the ablation ($35$ epochs, leave-one-AR-out
+on HARP~11930). The traces make the outcome of Table~\ref{tab:ablation} legible
+epoch by epoch.
+
+All three losses drive their training objective down quickly (left panel; the
+delta loss plateaus higher only because its per-pixel weighting rescales the loss
+magnitude, not because it fits worse). The held-out error (right panel) is where
+they part company: the plain and horizon arms settle below the persistence
+baseline, whereas the delta arm climbs \emph{above} it and stays there---the
+model, told to ignore the flat regions that persistence already handles, degrades
+them. This is the epoch-by-epoch view of the negative result reported in
+\S\ref{sec:ablation}.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_ablation_curves.pdf}
+\caption[Ablation training curves]{\textbf{Training curves for the three loss
+arms} (quick config, $35$ epochs, held-out HARP~11930). Left: Huber training
+loss (log scale). Right: held-out mean absolute error against the persistence
+baseline (dashed); the delta arm's epoch-$0$ value ($0.047$) is off-scale. Plain
+and horizon converge below persistence; delta diverges above it.}
+\label{fig:ablation_curves}
+\end{figure}

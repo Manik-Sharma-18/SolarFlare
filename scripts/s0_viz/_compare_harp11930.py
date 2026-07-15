@@ -23,6 +23,19 @@ ARMS = [
     "S8_simple_convlstm_zscore_fixedtest", "S9_simple_convlstm_s4_fixedtest",
     "S10_simple_convlstm_fast_tf", "S11_simple_convlstm_fasttf_extreme",
     "S13_simple_convlstm_dual_posweight100",
+    "S15_simple_convlstm_dual_classifier_dominant",
+    "S16_simple_convlstm_dual_extreme_weighted",
+    "S18_simple_convlstm_dual_extreme_pw100",
+    "S20p5_dilated_gates",
+    # Structural-fix arms (S30+): primary diagnostic moves here because val
+    # cube (harp_17, 1.92% extreme) under-represents flare regime.
+    "S30_stratified_sampler",
+    "S30b_sampler_plus_fixes",
+    "S31_masked_loss",
+    "S32_histogram_match",
+    "S19_quantile_head_tau099",
+    "S22_orthogonal_init",
+    "S20_depthwise_widen192",
 ]
 CUBE_NAME = "harp_11930"
 WIN = 64

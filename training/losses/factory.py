@@ -5,6 +5,7 @@ from typing import Dict
 from .components import WeightedMAELoss
 from .composite import CompositeLoss
 from .dual_head import DualHeadLoss
+from .quantile import PinballLoss
 
 
 def get_loss_function(config: Dict) -> nn.Module:
@@ -52,6 +53,17 @@ def get_loss_function(config: Dict) -> nn.Module:
             focal_gamma=config.get('focal_gamma', 2.0),
             focal_alpha=config.get('focal_alpha', 0.25),
             extreme_pixel_weight=config.get('extreme_pixel_weight', 1.0),
+            base_pixel_weight=config.get('base_pixel_weight', 1.0),
+            histogram_weight=config.get('histogram_weight', 0.0),
+            histogram_n_bins=config.get('histogram_n_bins', 32),
+            histogram_max=config.get('histogram_max', 3.0),
+            temporal_grad_weight=config.get('temporal_grad_weight', 0.0),
+            integrated_flux_weight=config.get('integrated_flux_weight', 0.0),
+            sobel_weight=config.get('sobel_weight', 0.0),
+            spectral_weight=config.get('spectral_weight', 0.0),
+            lowpass_weight=config.get('lowpass_weight', 0.0),
+            lowpass_pool=config.get('lowpass_pool', 32),
+            spatial_mean_weight=config.get('spatial_mean_weight', 0.0),
         )
 
     elif loss_type == 'weighted':
@@ -59,6 +71,9 @@ def get_loss_function(config: Dict) -> nn.Module:
             base_weight=config.get('base_weight', 1.0),
             extreme_weight=config.get('extreme_weight', 2.0)
         )
+
+    elif loss_type == 'quantile':
+        return PinballLoss(tau=config.get('tau', 0.99))
 
     else:
         raise ValueError(f"Unknown loss type: {loss_type}")

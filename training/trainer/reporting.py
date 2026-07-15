@@ -7,6 +7,9 @@ import numpy as np
 
 from utils.checkpoint import save_checkpoint
 
+# Legacy CompositeLoss keys retained so history rows in older runs stay
+# populated. New components (bce, tgrad, iflux, sobel, spectral, …) are
+# appended dynamically via setdefault in update_history.
 _COMPONENT_KEYS = ['l1', 'ssim', 'extreme', 'temporal_diff', 'temporal_var', 'asymmetric']
 
 
@@ -32,9 +35,10 @@ def log_epoch_summary(model, train_loss, avg_components, val_loss,
     """Print the per-epoch summary line block."""
     print(f"  Train Loss: {train_loss:.6f}")
     if avg_components:
-        print(f"  Loss: {train_loss:.6f} | TDiff: {avg_components['temporal_diff']:.4f}"
-              f" | TVar: {avg_components['temporal_var']:.4f}"
-              f" | Extreme: {avg_components['extreme']:.4f}")
+        # Print whichever components the loss reported this epoch — keys vary
+        # by loss class (CompositeLoss vs DualHeadLoss vs future variants).
+        parts = " | ".join(f"{k}: {v:.4f}" for k, v in avg_components.items())
+        print(f"  Components: {parts}")
     print(f"  Val Loss:   {val_loss:.6f}")
     print(f"  Val MAE:    {val_mae_per_timestep}")
     cls_extra = f" | CLS-CSI: {val_metrics['val_csi_classifier']:.4f}" if 'val_csi_classifier' in val_metrics else ""
@@ -100,13 +104,22 @@ def update_history(history, model, train_loss, val_loss, val_mae_per_timestep,
     history['val_hss_per_timestep'].append(val_metrics['val_hss_per_timestep'])
     history['persistence_mae_per_timestep'].append(val_metrics['persistence_mae_per_timestep'])
 
-    # Per-component loss averages
-    if avg_components:
-        for key in _COMPONENT_KEYS:
-            history[f'train_{key}'].append(avg_components[key])
-    else:
-        for key in _COMPONENT_KEYS:
-            history[f'train_{key}'].append(0.0)
+    if 'val_csi_classifier' in val_metrics:
+        history.setdefault('val_csi_classifier', []).append(val_metrics['val_csi_classifier'])
+        history.setdefault('val_hss_classifier', []).append(val_metrics['val_hss_classifier'])
+        history.setdefault('val_csi_classifier_per_timestep', []).append(
+            val_metrics['val_csi_classifier_per_timestep'])
+
+    # Per-component loss averages. Append zeros for legacy keys so older
+    # downstream readers still find them; append actual values for whatever
+    # keys this run's loss reported (auto-create the list via setdefault).
+    reported = avg_components or {}
+    for key in _COMPONENT_KEYS:
+        history.setdefault(f'train_{key}', []).append(float(reported.get(key, 0.0)))
+    for key, val in reported.items():
+        if key in _COMPONENT_KEYS:
+            continue
+        history.setdefault(f'train_{key}', []).append(float(val))
 
     # delta_scale to history (ARCH-02)
     if hasattr(model, 'delta_scale') and model.delta_scale is not None:
@@ -120,22 +133,23 @@ def update_history(history, model, train_loss, val_loss, val_mae_per_timestep,
 def save_epoch_checkpoints(checkpoints_dir, latest_checkpoint_path, *, epoch, model,
                            optimizer, scheduler, scaler, val_loss, best_val_loss,
                            patience_counter, patience, normalization_params,
-                           config, history):
+                           config, history, score_for_patience=None):
     """Save best (on improvement) and rolling-latest checkpoints for this epoch.
 
     Returns (best_val_loss, patience_counter, latest_checkpoint_path).
     """
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
+    score = val_loss if score_for_patience is None else score_for_patience
+    if score < best_val_loss:
+        best_val_loss = score
         save_checkpoint(
             filepath=checkpoints_dir / 'best_model.pt',
             epoch=epoch, model=model, optimizer=optimizer,
             scheduler=scheduler, scaler=scaler,
-            best_val_loss=val_loss, patience_counter=0,
+            best_val_loss=score, patience_counter=0,
             normalization_params=normalization_params, config=config,
             history=history
         )
-        print(f"  Saved best model (val_loss: {val_loss:.6f})")
+        print(f"  Saved best model (score: {score:.6f}, val_loss: {val_loss:.6f})")
         patience_counter = 0
     else:
         patience_counter += 1

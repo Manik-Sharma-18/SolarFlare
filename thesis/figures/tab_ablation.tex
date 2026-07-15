@@ -1,0 +1,20 @@
+\begin{table}[!htbp]
+\centering
+\small
+\caption[Loss ablation]{\textbf{Loss-reweighting ablation.} Skill over
+persistence (Eq.~\eqref{eq:skill}) for three training losses, under an identical
+quick-training configuration (leave-one-AR-out, HARP~11930). ``All'' is over
+every held-out window; ``active'' restricts to the windows in which the field
+actually moves (per-window persistence error above the median), where any real
+skill must show. Plain Huber is best; neither reweighting improves on it.}
+\label{tab:ablation}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|l|l|c|c|}
+\hline
+Loss & Weighting & Skill (all) & Skill (active) \\
+\hline\hline
+\textbf{Plain (Huber)} & uniform & $\mathbf{+6.8\%}$ & $\mathbf{+8.7\%}$ \\ \hline
+Horizon & upweight later lead-times & $+6.3\%$ & $+8.1\%$ \\ \hline
+Delta & weight by $|\text{target}-\text{persistence}|$ & $-44.7\%$ & $-29.3\%$ \\ \hline
+\end{tabular}
+\end{table}

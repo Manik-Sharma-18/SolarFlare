@@ -310,7 +310,8 @@ def build_index(
     split: str = "train",
     extreme_threshold: Optional[float] = None,
     flare_density_threshold: float = 0.02,
-) -> Tuple[List[Tuple[int, int, int]], List[bool]]:
+    per_cube_norm: Optional[Dict[int, Dict[str, float]]] = None,
+) -> Tuple[List[Tuple[int, int, int]], List[bool], List[float]]:
     """Build a precomputed sample index for a given data split.
 
     For each file assigned to *split*, generates sliding-window start
@@ -356,11 +357,22 @@ def build_index(
 
     index: List[Tuple[int, int, int]] = []
     flare_flags: List[bool] = []
+    extreme_densities: List[float] = []
 
     for file_idx in file_assignments.get(split, []):
         # Open briefly to read shape -- mmap so we only touch metadata
         mmap = np.load(file_paths[file_idx], mmap_mode="r")
         T = mmap.shape[0]
+
+        # Per-cube raw threshold so the comparison happens in normalized
+        # z-score space implicitly. Without this, comparing raw winding
+        # flux (~1e7) to a 0.528 z-score threshold flags ~every pixel.
+        thr = extreme_threshold
+        if (extreme_threshold is not None and per_cube_norm is not None
+                and file_idx in per_cube_norm):
+            mu = per_cube_norm[file_idx].get("mu", 0.0)
+            sigma = per_cube_norm[file_idx].get("sigma", 1.0) or 1.0
+            thr = abs(extreme_threshold * sigma + mu)
 
         max_start = T - t_in - t_out + 1
         if max_start <= 0:
@@ -378,18 +390,20 @@ def build_index(
                 output_frames = mmap[
                     window_start + t_in : window_start + t_in + t_out
                 ]
-                extreme_pixels = np.abs(output_frames) > extreme_threshold
-                extreme_fraction = extreme_pixels.mean()  # across all output pixels
+                extreme_pixels = np.abs(output_frames) > thr
+                extreme_fraction = float(extreme_pixels.mean())
                 is_flare = bool(extreme_fraction > flare_density_threshold)
             else:
+                extreme_fraction = 0.0
                 is_flare = False
 
-            # Append one entry per augmentation code; all share same flare flag
+            # Append one entry per augmentation code; all share same flag + density
             for aug in aug_codes:
                 index.append((file_idx, window_start, aug))
                 flare_flags.append(is_flare)
+                extreme_densities.append(extreme_fraction)
 
-    return index, flare_flags
+    return index, flare_flags, extreme_densities
 
 
 def _spatial_window_starts(extent: int, win: int, stride: int) -> List[int]:
@@ -407,6 +421,14 @@ def _spatial_window_starts(extent: int, win: int, stride: int) -> List[int]:
     return starts
 
 
+def _per_cube_raw_threshold(extreme_threshold: float, per_cube_norm, file_idx: int) -> float:
+    if per_cube_norm is None or file_idx not in per_cube_norm:
+        return extreme_threshold
+    mu = per_cube_norm[file_idx].get("mu", 0.0)
+    sigma = per_cube_norm[file_idx].get("sigma", 1.0) or 1.0
+    return abs(extreme_threshold * sigma + mu)
+
+
 def build_spatial_index(
     file_paths: List[str],
     file_assignments: Dict[str, List[int]],
@@ -419,7 +441,8 @@ def build_spatial_index(
     split: str = "train",
     extreme_threshold: Optional[float] = None,
     flare_density_threshold: float = 0.02,
-) -> Tuple[List[Tuple[int, int, int, int, int]], List[bool]]:
+    per_cube_norm: Optional[Dict[int, Dict[str, float]]] = None,
+) -> Tuple[List[Tuple[int, int, int, int, int]], List[bool], List[float]]:
     """Build a precomputed 5-tuple sample index with spatial sliding window.
 
     Each entry is ``(file_idx, t_start, y_start, x_start, aug_type)``. Window
@@ -456,6 +479,7 @@ def build_spatial_index(
 
     index: List[Tuple[int, int, int, int, int]] = []
     flare_flags: List[bool] = []
+    extreme_densities: List[float] = []
 
     for file_idx in file_assignments.get(split, []):
         mmap = np.load(file_paths[file_idx], mmap_mode="r")
@@ -477,6 +501,8 @@ def build_spatial_index(
 
         y_starts = _spatial_window_starts(H, window_size, s_stride)
         x_starts = _spatial_window_starts(W, window_size, s_stride)
+        thr = (_per_cube_raw_threshold(extreme_threshold, per_cube_norm, file_idx)
+               if extreme_threshold is not None else None)
 
         for t_start in range(0, max_t_start, t_stride):
             if extreme_threshold is not None:
@@ -486,14 +512,17 @@ def build_spatial_index(
                     if extreme_threshold is not None:
                         tile = out_frames[:, y:y + window_size,
                                           x:x + window_size]
-                        extreme_pixels = np.abs(tile) > extreme_threshold
+                        extreme_pixels = np.abs(tile) > thr
+                        extreme_fraction = float(extreme_pixels.mean())
                         is_flare = bool(
-                            extreme_pixels.mean() > flare_density_threshold
+                            extreme_fraction > flare_density_threshold
                         )
                     else:
+                        extreme_fraction = 0.0
                         is_flare = False
                     for aug in aug_codes:
                         index.append((file_idx, t_start, y, x, aug))
                         flare_flags.append(is_flare)
+                        extreme_densities.append(extreme_fraction)
 
-    return index, flare_flags
+    return index, flare_flags, extreme_densities

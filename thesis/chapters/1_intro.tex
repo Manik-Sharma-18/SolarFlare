@@ -95,7 +95,46 @@ strands, and the present work, in a single picture.
 Magnetic winding flux is a \emph{signed} field defined pixel-by-pixel across an
 active region: it is positive where field lines wind one way and negative where
 they wind the other, and it is concentrated along polarity inversion lines,
-where flares originate. Existing work that uses winding reduces the map to a
+where flares originate.
+
+Formally, magnetic winding is a renormalisation of magnetic \emph{helicity}. The
+relative helicity of a field $\mathbf{B}=\nabla\times\mathbf{A}$ is
+$H=\int_V \mathbf{A}\cdot\mathbf{B}\,\mathrm{d}V$; the rate at which it is injected
+through a photospheric plane $S$ can be written as a pairwise integral over
+field-line footpoints \citep{prior2019},
+\begin{equation}
+  \frac{\mathrm{d}H}{\mathrm{d}t} = -\frac{1}{2\pi}\int_S\!\int_S
+    \frac{\mathrm{d}\theta}{\mathrm{d}t}(\mathbf{x},\mathbf{y})\,
+    B_z(\mathbf{x})\,B_z(\mathbf{y})\,\mathrm{d}^2x\,\mathrm{d}^2y,
+  \label{eq:helicity}
+\end{equation}
+where $\theta(\mathbf{x},\mathbf{y})$ is the angle subtended by the two footpoints
+and $\mathrm{d}\theta/\mathrm{d}t$ their relative rotation rate. Magnetic
+\emph{winding} removes the flux weighting---each $B_z$ is replaced by its sign
+$\sigma=\operatorname{sgn}(B_z)\in\{-1,0,+1\}$---so the measure depends on
+field-line geometry alone \citep{mactaggart2020},
+\begin{equation}
+  \frac{\mathrm{d}L}{\mathrm{d}t} = -\frac{1}{2\pi}\int_S\!\int_S
+    \frac{\mathrm{d}\theta}{\mathrm{d}t}(\mathbf{x},\mathbf{y})\,
+    \sigma(\mathbf{x})\,\sigma(\mathbf{y})\,\mathrm{d}^2x\,\mathrm{d}^2y .
+  \label{eq:winding}
+\end{equation}
+The integrand localises to a per-pixel \emph{winding-flux density}
+\begin{equation}
+  \dot{\mathcal{L}}(\mathbf{x}) = -\frac{1}{2\pi}\,\sigma(\mathbf{x})\!\int_S
+    \frac{\mathrm{d}\theta}{\mathrm{d}t}(\mathbf{x},\mathbf{y})\,
+    \sigma(\mathbf{y})\,\mathrm{d}^2y ,
+  \label{eq:winddens}
+\end{equation}
+the signed map $\dot{\mathcal{L}}(\mathbf{x})$ that this thesis takes as its data:
+at each point it is the net rotation of all other field lines about that point,
+weighted only by their vertical sign. Comparing Eqs.~\eqref{eq:helicity} and
+\eqref{eq:winding}, helicity is winding weighted by magnetic flux
+($B_zB_z$ versus $\sigma\sigma$); winding therefore isolates the topology of the
+near-horizontal field that helicity's flux weighting can mask, making it a
+sensitive probe of the twisted, current-carrying field that precedes flaring.
+
+Existing work that uses winding reduces the map to a
 single number---its spatial integral---before forecasting. The most direct
 example is recent: \citet{williams2026} derive scalar winding features from
 active-region maps and feed them to gradient-boosted trees (XGBoost), obtaining
@@ -111,7 +150,7 @@ standard deviation, so integrating to a scalar discards almost all of the
 structure. To date, no study has fed the \emph{two-dimensional} winding-flux map,
 with its spatial structure intact, to a deep model.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.92\textwidth]{figures/fig_winding_map.pdf}
 \caption[Signed-mean cancellation]{\textbf{Why the spatial integral throws the
@@ -126,9 +165,12 @@ localised structure that the two-dimensional map retains.}
 This thesis takes a first step into that gap. Rather than forecasting a flare
 label directly, it asks a more basic question about the winding-flux field
 itself: \emph{given a short history of winding-flux maps of an active region,
-can a spatiotemporal deep model predict how the field evolves?} A model that can
-anticipate the field's evolution has, in effect, learned the structure and
-dynamics that a downstream forecaster would need. The vehicle for this study is
+can a spatiotemporal deep model predict how the field evolves?} We treat this as
+a \emph{proxy} task: a model that can anticipate the field's evolution must encode
+the spatial structure and short-term dynamics of the winding field---
+representations a downstream flare classifier could in principle reuse. Whether
+such a representation actually improves flare classification is the question this
+work sets up rather than settles. The vehicle for this study is
 the Convolutional LSTM (ConvLSTM), a neural architecture that couples the spatial
 inductive bias of convolution with the temporal memory of an LSTM, and is
 therefore matched to the spatiotemporal nature of the data.

@@ -1,0 +1,85 @@
+\chapter{Machine-learning methods}
+\label{app:methods}
+
+This appendix defines the standard machine-learning components used in
+Chapter~\ref{ch:arch}, gives each one's formula, and states exactly how it is
+configured in this work. Symbols: $\theta$ are the model parameters, $g_t=\nabla_\theta
+\mathcal{L}$ the gradient at step $t$, and $\eta$ the learning rate.
+
+\section{Adam optimiser}
+Adam \citep{kingma2015} adapts a per-parameter step size from running estimates of
+the first and second moments of the gradient:
+\begin{align}
+  m_t &= \beta_1 m_{t-1} + (1-\beta_1)\,g_t, &
+  v_t &= \beta_2 v_{t-1} + (1-\beta_2)\,g_t^2, \nonumber\\
+  \hat{m}_t &= \frac{m_t}{1-\beta_1^{\,t}}, &
+  \hat{v}_t &= \frac{v_t}{1-\beta_2^{\,t}}, \qquad
+  \theta_t = \theta_{t-1} - \eta\,\frac{\hat{m}_t}{\sqrt{\hat{v}_t}+\epsilon}.
+\end{align}
+\textbf{Implementation.} \texttt{torch.optim.Adam} over all $3.3$\,M parameters,
+$\eta=10^{-3}$, $(\beta_1,\beta_2)=(0.9,0.999)$, $\epsilon=10^{-8}$; one update per
+mini-batch of $8$ windows.
+
+\section{Cosine learning-rate decay}
+The learning rate is annealed from its initial value to zero along a half cosine
+over the training budget of $T$ epochs \citep{loshchilov2017}:
+\begin{equation}
+  \eta_t = \tfrac{1}{2}\,\eta_0\left(1 + \cos\frac{\pi t}{T}\right).
+\end{equation}
+\textbf{Implementation.} \texttt{CosineAnnealingLR} with $\eta_0=10^{-3}$ and
+$T=130$ epochs, stepped once per epoch; large steps early, near-zero steps as
+training ends.
+
+\section{Group normalisation}
+Group normalisation \citep{wu2018} splits the $C$ channels of a feature map into
+$G$ groups and standardises each group over its channels and spatial extent
+(independently per sample), then applies a learned affine map:
+\begin{equation}
+  \hat{x} = \frac{x-\mu_g}{\sqrt{\sigma_g^2+\epsilon}},\qquad y=\gamma\,\hat{x}+\beta,
+\end{equation}
+where $\mu_g,\sigma_g^2$ are the mean and variance over group $g$.
+\textbf{Implementation.} \texttt{GroupNorm} with $G=8$ groups over the $C=96$
+hidden channels ($12$ channels per group), $\epsilon=10^{-5}$, applied between
+stacked ConvLSTM layers. It keeps \emph{no running statistics}, so it behaves
+identically inside the unrolled autoregressive decode loop---the reason it is
+preferred here over batch normalisation.
+
+\section{Huber (smooth-$L_1$) loss}
+The training criterion on the residual $r=\hat{x}-x$ is quadratic near zero and
+linear in the tails, with elbow $\beta$ \citep{huber1964}:
+\begin{equation}
+  \ell_\beta(r)=
+  \begin{cases}
+    \tfrac{1}{2}\,r^2/\beta, & |r|<\beta,\\[2pt]
+    |r|-\tfrac{1}{2}\beta, & |r|\ge\beta.
+  \end{cases}
+\end{equation}
+\textbf{Implementation.} \texttt{SmoothL1Loss} with $\beta=1$, averaged over all
+pixels, the four horizon frames, and the batch. The quadratic core gives stable
+gradients for small residuals; the linear tail stops the rare high-amplitude
+frames from dominating the update.
+
+\section{Gradient-norm clipping}
+To curb the occasional exploding gradient of a recurrent model \citep{pascanu2013},
+the full gradient vector is rescaled whenever its $L_2$ norm exceeds a threshold $c$:
+\begin{equation}
+  g \;\leftarrow\; g\cdot\min\!\left(1,\ \frac{c}{\lVert g\rVert_2}\right).
+\end{equation}
+\textbf{Implementation.} \texttt{clip\_grad\_norm\_} with $c=1.0$, computed over the
+concatenation of all parameter gradients, applied after back-propagation and before
+each optimiser step.
+
+\section{Bootstrap confidence interval}
+The skill's uncertainty is estimated non-parametrically by resampling the
+evaluation windows \citep{efron1979}. From the $n=46$ held-out windows, draw $n$
+with replacement, recompute skill on the resample,
+\begin{equation}
+  \text{skill}^\ast_b = 1 - \frac{\operatorname{mean}_{i\in S_b}\mathrm{MAE}^{\text{model}}_i}
+                             {\operatorname{mean}_{i\in S_b}\mathrm{MAE}^{\text{pers}}_i},
+  \qquad b=1,\dots,B,
+\end{equation}
+and take the $2.5$th and $97.5$th percentiles of $\{\text{skill}^\ast_b\}$ as the
+$95\%$ interval.
+\textbf{Implementation.} $B=20{,}000$ resamples of whole windows (so within-window
+pixel correlation is respected), giving $[+6.8\%,+10.3\%]$ and
+$P(\text{skill}>0)=1.000$ for the result of Table~\ref{tab:results}.

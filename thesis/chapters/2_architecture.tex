@@ -14,10 +14,20 @@ outcome in Chapter~\ref{ch:results} can be read without hidden assumptions.
 
 \paragraph{Winding-flux datacubes.}
 The input data are per-active-region datacubes derived from SDO/HMI
-observations. Each cube stores a single channel $\mathrm{wind}[H,W,T]$---the
-winding-flux density on an $H\times W$ spatial grid at $T$ successive times---
-together with a vector of acquisition timestamps at a nominal $12$-minute
-cadence. A small number of frames are missing; these are flagged by a sentinel
+observations. \emph{Winding flux} measures the rate at which magnetic
+\emph{winding}---a signed, topological measure of how an active region's field
+lines wrap around one another \citep{mactaggart2021}---is carried through the
+photosphere. It is obtained from the time sequence of photospheric vector
+magnetograms by accumulating, across the region, the winding contributed by the
+moving and emerging magnetic flux between successive frames. The scheme used here
+follows this winding-flux accounting in spirit---close to recent tools of the
+same kind, though not identical to any single published implementation---and its
+output is a \emph{rate}: a per-frame quantity, not an accumulated one. Each cube
+stores a single channel $\mathrm{wind}[H,W,T]$---this winding-flux \emph{rate}
+density on an $H\times W$ spatial grid at $T$ successive times---together with a
+vector of acquisition timestamps at a nominal $12$-minute cadence. That the
+stored field is a rate, and not the accumulated winding itself, is the fact that
+determines the forecasting target below. A small number of frames are missing; these are flagged by a sentinel
 timestamp of zero and are removed before any windowing, so that the model only
 ever sees physically contiguous sequences. The corpus used here comprises the
 available HARP cubes; one cube exhibiting pathological, noise-dominated values
@@ -40,7 +50,10 @@ where line-of-sight foreshortening degrades the vector-field inversion and leave
 part of the patch with unreliable, low-signal winding (visible in HARP~892 in
 Figure~\ref{fig:gallery}). Such near-limb passages are a known limitation of
 photospheric magnetography and bound the usable field of view for any method
-built on these maps.
+built on these maps. Near-limb frames are retained rather than masked: their
+degraded winding enters the pooled training set as an additional source of noise,
+and robustness to it is part of what the leave-one-region-out evaluation
+(\S\ref{sec:training}) measures.
 
 \input{figures/fig_ar_gallery}
 \input{figures/fig_dataset}
@@ -79,14 +92,24 @@ Figure~\ref{fig:norm} (right); the softening constant $s=10^{3}$ was fixed by
 prior probing of the field's amplitude distribution. The transformed field is
 then rescaled by a robust ($99.5$th percentile) amplitude and clipped to
 $[-1,1]$ per cube, giving a normalised, zero-centred representation comparable
-across active regions.
+across active regions. The clip is a mild guardrail, not a lossy compression: on
+the accumulated total it saturates only the top $0.5\%$ of pixels and discards
+under $0.1\%$ of the field's summed amplitude---the asinh transform has already
+compressed the extremes, so the most extreme pixel sits barely above the clip
+($\sim\!1.15\times$ the threshold). Its real purpose is to contain the rare
+pathological cube whose outliers would otherwise dominate the robust scale and
+the loss. A control run confirms this is not a sensitive choice: widening the
+limit to $[-1.5,1.5]$ leaves the held-out skill unchanged (within $0.001$ under
+an identical training configuration), as Table~\ref{tab:clip} records.
+
+\input{figures/tab_clip}
 
 \input{figures/fig_normalization}
 
 \paragraph{The accumulated total winding.}
 The quantity this thesis forecasts is the \emph{accumulated total} winding: the
 net magnetic winding injected into an active region up to time $t$, obtained by
-integrating the per-frame winding over time,
+integrating the per-frame winding-flux rate over time,
 \begin{equation}
   W[t] \;=\; \sum_{\tau \le t} \mathrm{wind}[\tau].
   \label{eq:cumsum}
@@ -101,7 +124,7 @@ model is trained and evaluated on the accumulated total $W$ of
 Eq.~\eqref{eq:cumsum}, consistent with the total winding used throughout this
 project.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.66\textwidth]{figures/fig_autocorr.pdf}
 \caption[Persistence of the total winding]{\textbf{The accumulated total winding
@@ -116,13 +139,70 @@ Chapter~\ref{ch:results}.}
 \label{fig:autocorr}
 \end{figure}
 
+\paragraph{The spatial mean discards the signal.}
+The premise of this thesis is that reducing a winding map to a single number
+destroys the very structure that matters, and the data show it directly.
+Figure~\ref{fig:spmean_rate} plots, for nine representative regions, the
+\emph{spatial mean} of the winding flux---the scalar the literature forecasts.
+It jitters about zero: the map is bipolar, and its positive and negative winding
+lobes very nearly cancel when averaged. Its magnitude, a few times
+$10^{2}$--$10^{3}$, sits four to five orders of magnitude below the per-pixel
+amplitude ($\sim\!10^{7}$)---almost the entire field has been averaged away.
+Accumulating that scalar in time (Figure~\ref{fig:spmean_total}) gives a smooth
+one-dimensional drift: forecastable, but carrying none of the spatial
+organisation that distinguishes one configuration from another. Both figures are
+gap-aware---shaded bands mark acquisition gaps, across which the series is broken
+rather than interpolated. Together they are the empirical case for the central
+choice of this work: to keep the map rather than collapse it.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_spatialmean_rate.pdf}
+\caption[Spatial-mean winding flux]{\textbf{The spatial mean cancels the signal.}
+Spatial mean of the winding flux (the zarr \texttt{wind} field) versus UTC time
+for nine representative active regions; the red dashed line is zero. The mean
+jitters about zero as opposed-sign winding lobes cancel, with magnitude four to
+five decades below the per-pixel amplitude. Shaded bands are acquisition gaps,
+across which the line is broken.}
+\label{fig:spmean_rate}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_spatialmean_total.pdf}
+\caption[Spatial-mean total winding]{\textbf{Accumulating the scalar yields only a
+smooth drift.} Spatial mean of the accumulated total winding
+($\mathrm{cumsum}$ of the field in time) versus UTC for the same regions. The
+result is smooth and forecastable but one-dimensional---the spatial structure of
+the map is gone. Shaded bands are acquisition gaps; the small steps across some
+gaps are the cumulative sum bridging missing time.}
+\label{fig:spmean_total}
+\end{figure}
+
 \paragraph{Spatial low-pass and downsampling.}
-Before entering the network each frame is area-downsampled to a fixed width and
-convolved with a separable Gaussian kernel. This is a deliberate, disclosed
-choice, and the data motivate it directly. The winding field carries appreciable
-power at every spatial scale, right down to the pixel: its radially-averaged
-power spectrum falls off only slowly and never flattens into a noise floor
-(Figure~\ref{fig:psd}). That fine-scale content is not, however, useful for
+Before entering the network each frame is area-downsampled to the fixed
+$88\times132$ grid and convolved with a separable Gaussian kernel of width
+$\sigma=1.5$~px,
+\begin{equation}
+  \tilde{W}_{\text{lp}} = G_\sigma * \tilde{W},
+  \qquad G_\sigma(r)\propto \exp\!\big(-r^2/2\sigma^2\big),
+  \label{eq:lowpass}
+\end{equation}
+applied as two one-dimensional passes (along rows, then columns). This is a
+deliberate, disclosed choice, and the data motivate it directly. The winding
+field carries appreciable power at every spatial scale, right down to the pixel:
+its radially-averaged power spectrum falls off only slowly and never flattens into
+a noise floor (Figure~\ref{fig:psd}). Here the \emph{spatial wavenumber}
+$k=2\pi/\lambda$ measures inverse spatial scale---small $k$ is the large-scale
+envelope, large $k$ the pixel-scale detail---and the radially-averaged power
+spectrum is the squared Fourier amplitude of the field, averaged over all
+directions at fixed $|\mathbf{k}|=k$,
+\begin{equation}
+  P(k) = \big\langle\, \lvert\hat{\tilde{W}}(\mathbf{k})\rvert^2 \,\big\rangle_{\lvert\mathbf{k}\rvert=k},
+  \qquad
+  \hat{\tilde{W}}(\mathbf{k}) = \int \tilde{W}(\mathbf{x})\,e^{-i\mathbf{k}\cdot\mathbf{x}}\,\mathrm{d}^2x .
+  \label{eq:psd}
+\end{equation} That fine-scale content is not, however, useful for
 forecasting---the same small scales that the spectrum shows to be energetic are
 the ones whose frame-to-frame evolution is incoherent
 (Figure~\ref{fig:autocorr}), so they cannot be predicted. The low-pass discards
@@ -136,6 +216,31 @@ to the gap-aware training windows.
 \input{figures/fig_psd}
 
 \input{figures/fig_pipeline}
+
+\paragraph{The pipeline end to end.}
+For full transparency, the complete transformation from the raw datacube to a
+normalised model input is the single composition
+\begin{equation}
+  x_t \;=\; \operatorname{clip}_{[-1,1]}\!\left(
+    \frac{1}{q}\; G_\sigma * \operatorname{asinh}\!\left[
+      \frac{1}{s}\,\mathcal{D}\!\sum_{\tau\le t}\mathrm{wind}[\tau]
+    \right]\right),
+  \label{eq:pipeline}
+\end{equation}
+read from the inside out: accumulate the winding-flux \emph{rate} in time to the
+total (Eq.~\eqref{eq:cumsum}); area-downsample with the operator $\mathcal{D}$ to
+the $88\times132$ grid; asinh-compress with softening $s=10^3$
+(Eq.~\eqref{eq:asinh}); low-pass with $G_\sigma$ (Eq.~\eqref{eq:lowpass}); divide
+by the per-cube robust amplitude $q$ (the $99.5$th percentile) and clip to
+$[-1,1]$. The normalised sequence is then cut into gap-aware windows of
+$T_{\text{in}}+T_{\text{out}}=14$ consecutive frames. \emph{Within} the model
+(\S\ref{sec:model}) the encoder--forecaster $f_\theta$ maps the first ten frames
+to a four-frame forecast. \emph{After} the model, nothing inverts the
+normalisation: prediction, ground truth, the persistence baseline, and every
+reported error all live in these same normalised units, so the skill of
+Eq.~\eqref{eq:skill} is a strictly like-for-like comparison. Equation
+\eqref{eq:pipeline}, the windowing, $f_\theta$, and this evaluation convention are
+the entire path from a photospheric observation to a reported number.
 
 \section{The Convolutional LSTM cell}
 \label{sec:convlstm}
@@ -189,14 +294,28 @@ autoregressively. Given an input clip of $T_{\text{in}}=10$ frames, the encoder
 applies Eq.~\eqref{eq:gates}--\eqref{eq:cell} layer by layer and frame by frame,
 accumulating the sequence into the hidden and cell states of every layer. No
 output is produced during encoding; its sole purpose is to summarise the history
-into the recurrent state.
+into the recurrent state. Concretely, for $L$ stacked layers the encoder updates,
+at each frame $t=1,\dots,T_{\text{in}}$ and layer $\ell=1,\dots,L$,
+\begin{equation}
+  (h^{\ell}_t, c^{\ell}_t) = \operatorname{ConvLSTM}^{\ell}\!\big(z^{\ell-1}_t,\,
+    h^{\ell}_{t-1},\, c^{\ell}_{t-1}\big),
+  \qquad z^{0}_t = x_t,\quad z^{\ell}_t = h^{\ell}_t,
+  \label{eq:encoder}
+\end{equation}
+where $\operatorname{ConvLSTM}^{\ell}$ is one application of
+Eqs.~\eqref{eq:gates}--\eqref{eq:cell} and $z^{\ell}_t$ is the map handed up to the
+next layer. After the final input frame the states
+$\{(h^{\ell}_{T_{\text{in}}}, c^{\ell}_{T_{\text{in}}})\}_{\ell=1}^{L}$ carry the
+entire observed history.
 
 Decoding then rolls the state forward for $T_{\text{out}}=4$ steps. At each step
 the decoder stack advances the recurrent state and a $1\times1$ convolution maps
 the top hidden map to a single-channel prediction. Crucially the model predicts a
-\emph{residual}: the output is the previous frame plus a learned increment,
+\emph{residual}: the output is the previous frame plus a learned increment read
+off the top hidden map by a $1\times1$ convolution $W_{\text{out}}$,
 \begin{equation}
   \hat{x}_{t+1} = x_t + \Delta_\theta(h_t),
+  \qquad \Delta_\theta(h_t) = W_{\text{out}} * h^{L}_t,
   \label{eq:residual}
 \end{equation}
 so that a do-nothing network falls back to \emph{persistence}---copying the last
@@ -213,6 +332,44 @@ During training the fed-back frame may instead be the ground-truth frame with a
 tunable probability---\emph{teacher forcing}---which stabilises early optimisation
 by anchoring the roll-out to real data; at evaluation teacher forcing is switched
 off and the model runs purely on its own predictions.
+
+\paragraph{Forward propagation, with shapes.}
+Figure~\ref{fig:forward} traces one forward pass from end to end, carrying the
+tensor shape $(C,T,H,W)$ at every stage (the batch dimension is suppressed). A
+normalised input window is a tensor $x\in\mathbb{R}^{1\times10\times88\times132}$.
+The encoder consumes it one frame at a time: each frame
+$x_t\in\mathbb{R}^{1\times88\times132}$ is passed up the three-layer stack, every
+layer applying its fused gate convolution to the channel-concatenation
+$[x_t,h^{\ell}_{t-1}]$ and updating a hidden and cell map
+$h^{\ell},c^{\ell}\in\mathbb{R}^{96\times88\times132}$ (Eq.~\eqref{eq:encoder}).
+The first layer's convolution has weight
+$W\in\mathbb{R}^{384\times97\times3\times3}$---its $4\times96$ output channels are
+the four gates, from the $1+96$ input channels---and the two deeper layers
+$W\in\mathbb{R}^{384\times192\times3\times3}$. After the tenth frame the encoder's
+final states $\{(h^{\ell},c^{\ell})\}_{\ell=1}^{3}$ summarise the history and are
+handed to a \emph{separate} three-layer decoder stack as its initial states. The
+decoder then rolls forward four steps: at each step it advances the states, a
+$1\times1$ convolution $W_{\text{out}}\in\mathbb{R}^{1\times96\times1\times1}$
+reads an increment $\Delta=W_{\text{out}}*h^{L}$ off the top hidden map, and the
+residual $\hat{x}_{t+1}=x_t+\Delta$ (Eq.~\eqref{eq:residual}) is both an output
+frame and the next step's input. The four increments stack into the forecast
+$\hat{x}\in\mathbb{R}^{1\times4\times88\times132}$. Nothing after the network
+inverts the normalisation, so these four maps are scored against the truth and
+against persistence in identical units. Encoder and decoder are distinct stacks,
+together $3.33$~million parameters.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_forward.pdf}
+\caption[Forward propagation]{\textbf{Forward propagation, end to end, with tensor
+shapes} $(C,T,H,W)$ (batch suppressed). The preprocessing of Eq.~\eqref{eq:pipeline}
+produces a normalised input window; the encoder folds its ten frames into hidden
+and cell states; these seed a separate decoder that autoregressively emits four
+residual forecast frames through a $1\times1$ head. Fused gate-convolution and
+head weight shapes are listed below the diagram. The output is four normalised
+winding maps, compared to persistence in the same units.}
+\label{fig:forward}
+\end{figure}
 
 \section{Training procedure}
 \label{sec:training}

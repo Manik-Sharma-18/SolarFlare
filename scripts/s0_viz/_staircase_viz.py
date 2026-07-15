@@ -33,8 +33,8 @@ def render_staircase_grid(gt_seq, step_preds_full, abs_start, stride, t_out,
     gt_thumb = gt_seq[:, ::ds, ::ds]
     preds_thumb = [p[:, ::ds, ::ds] for p in step_preds_full]
 
-    norm = _symlog_norm(np.concatenate([gt_thumb.ravel(),
-                                        np.concatenate([p.ravel() for p in preds_thumb])]))
+    # Norm from GT only — identical across arms, pred clips visibly when overshooting.
+    norm = _symlog_norm(gt_thumb.ravel())
 
     fig_w = max(10.0, 1.6 * n_cols)
     fig_h = 1.6 * (n_steps + 1) + 1.2

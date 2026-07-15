@@ -284,7 +284,7 @@ def validate_config(config: dict) -> None:
         scheduler = training.get("scheduler")
         if isinstance(scheduler, dict):
             stype = scheduler.get("type")
-            valid_schedulers = ("cosine", "step", "constant", "none")
+            valid_schedulers = ("cosine", "step", "constant", "none", "cosine_warmup")
             if stype is not None and stype not in valid_schedulers:
                 errors.append(f"'training.scheduler.type' must be one of {valid_schedulers}, got '{stype}'")
 
@@ -294,7 +294,7 @@ def validate_config(config: dict) -> None:
     loss = config.get("loss")
     if isinstance(loss, dict):
         ltype = loss.get("type")
-        valid_loss_types = ("l1", "composite", "weighted", "dual_head")
+        valid_loss_types = ("l1", "composite", "weighted", "dual_head", "quantile")
         if ltype is not None and ltype not in valid_loss_types:
             errors.append(f"'loss.type' must be one of {valid_loss_types}, got '{ltype}'")
 

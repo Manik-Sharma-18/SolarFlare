@@ -4,6 +4,8 @@ import sys
 import json
 from typing import Dict, List, Any
 
+import contextlib
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -70,7 +72,8 @@ def train_model(
                 train_loss, _, avg_components = train_epoch(
                     model, train_loader, optimizer, scaler, device,
                     tf_ratio, epoch, c.loss_fn, c.use_amp, c.grad_clip, c.show_progress,
-                    c.output_channels, c.max_consecutive_nan, c.grad_norm_warning_threshold
+                    c.output_channels, c.max_consecutive_nan, c.grad_norm_warning_threshold,
+                    ema=c.ema,
                 )
             except NaNLossError:
                 logger.error("NaN loss abort triggered. Saving emergency checkpoint.")
@@ -81,15 +84,54 @@ def train_model(
                 )
                 raise
 
-            # Validate
-            val_metrics = validate(
-                model, val_loader, device, c.loss_fn, c.use_amp, c.show_progress,
-                c.output_channels, extreme_threshold=c.extreme_threshold,
-                ssim_data_range=c.ssim_data_range, verbose_metrics=c.verbose_metrics,
-                epoch=epoch, total_epochs=c.epochs,
-            )
+            # Validate (optionally with EMA params swapped in)
+            val_ctx = (c.ema.swap_in(model) if (c.ema is not None and c.ema_use_for_eval)
+                       else contextlib.nullcontext())
+            with val_ctx:
+                val_metrics = validate(
+                    model, val_loader, device, c.loss_fn, c.use_amp, c.show_progress,
+                    c.output_channels, extreme_threshold=c.extreme_threshold,
+                    ssim_data_range=c.ssim_data_range, verbose_metrics=c.verbose_metrics,
+                    epoch=epoch, total_epochs=c.epochs,
+                )
             val_loss = val_metrics['val_loss']
             val_mae_per_timestep = val_metrics['val_mae_per_timestep']
+
+            # AR-aware early-stop gate (config: training.early_stop_metric).
+            # Default = 'val_loss' (legacy). 'ar_composite' penalises arms whose
+            # variance_ratio departs from 1.0 — punishes mode-compress (var<<1) +
+            # runaway (var>>1) that pure val_loss can't see. Addresses recurring
+            # ep4 vs ep12 single-step-illusion across S31/S33/S20.
+            es_metric = config.get('early_stop_metric', 'val_loss')
+            score_override = None
+            if es_metric == 'ar_composite':
+                vr = float(val_metrics.get('temporal_variation_ratio', 1.0)) or 1e-6
+                ar_penalty = 1.0 + abs(1.0 - vr)
+                early_stop_value = val_loss * ar_penalty
+                print(f"  AR-composite gate: val_loss {val_loss:.4f} × (1+|1-{vr:.2f}|)"
+                      f" = {early_stop_value:.4f}")
+            elif es_metric == 'any_best_of':
+                vr = float(val_metrics.get('temporal_variation_ratio', 1.0)) or 1e-6
+                cls_csi = float(val_metrics.get('val_csi_classifier', 0.0))
+                pers = val_metrics.get('persistence_skill_per_timestep', [0.0])
+                pers_mean = float(sum(pers) / max(1, len(pers)))
+                cand = {
+                    'val_loss':       val_loss,
+                    'ar_composite':   val_loss * (1.0 + abs(1.0 - vr)),
+                    'neg_cls_csi':    -cls_csi,
+                    'neg_pers_skill': -pers_mean,
+                }
+                if not hasattr(c, '_any_best'):
+                    c._any_best = {k: float('inf') for k in cand}
+                improved = [k for k, v in cand.items() if v < c._any_best[k]]
+                for k in improved: c._any_best[k] = cand[k]
+                print(f"  any_best_of: improved=[{','.join(improved) if improved else 'none'}]"
+                      f" (vl={val_loss:.4f} arc={cand['ar_composite']:.4f}"
+                      f" cls_csi={cls_csi:.4f} pers={pers_mean:+.1f}%)")
+                early_stop_value = val_loss
+                score_override = (best_val_loss - 1e-6) if improved else (best_val_loss + 1e-6)
+            else:
+                early_stop_value = val_loss
 
             if c.scheduler_enabled:
                 scheduler.step()
@@ -109,14 +151,19 @@ def train_model(
             # Free device caches between epochs (GPU/MPS memory)
             clear_device_cache(device)
 
-            # Checkpointing — best (on improvement) + rolling latest
-            best_val_loss, patience_counter, latest_checkpoint_path = save_epoch_checkpoints(
-                c.checkpoints_dir, latest_checkpoint_path,
-                epoch=epoch, model=model, optimizer=optimizer, scheduler=scheduler,
-                scaler=scaler, val_loss=val_loss, best_val_loss=best_val_loss,
-                patience_counter=patience_counter, patience=c.patience,
-                normalization_params=normalization_params, config=config, history=history,
-            )
+            # Checkpointing — best (on improvement) + rolling latest. With EMA,
+            # save the shadow params so reload sees what validate() actually saw.
+            ckpt_ctx = (c.ema.swap_in(model) if (c.ema is not None and c.ema_use_for_checkpoint)
+                        else contextlib.nullcontext())
+            with ckpt_ctx:
+                best_val_loss, patience_counter, latest_checkpoint_path = save_epoch_checkpoints(
+                    c.checkpoints_dir, latest_checkpoint_path,
+                    epoch=epoch, model=model, optimizer=optimizer, scheduler=scheduler,
+                    scaler=scaler, val_loss=early_stop_value, best_val_loss=best_val_loss,
+                    patience_counter=patience_counter, patience=c.patience,
+                    normalization_params=normalization_params, config=config, history=history,
+                    score_for_patience=score_override,
+                )
 
             # Early stopping
             if patience_counter >= c.patience:

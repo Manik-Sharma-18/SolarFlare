@@ -1,15 +1,14 @@
-"""Staircase autoregressive prediction on harp_11930, full-frame stride 64.
+"""Staircase autoregressive prediction, full-frame tiled at the training window.
 
-Per step: predict 4 frames (full-frame, tiled), commit first `stride` to the
-output series, slide input buffer by `stride` (drop oldest, append committed
-predictions). Pure autoregressive — model never sees real frames past t0+T_in.
-
-Reports per-frame integrated winding flux (pred vs GT) + MAE + variance ratio.
-Plots integrated-flux time series. Dumps CSV.
+Per step: predict t_out frames (tiled), commit first `stride` to the output
+series, slide the input buffer by `stride`. Pure autoregressive — model never
+sees real frames past t0+T_in. Reports per-frame integrated winding flux MAE +
+variance ratio + drift correlation; plots integrated-flux series + grid.
+Cube (--cube), tile (config window_size) and softening come from the arm config
+so pooled-domain / signed_asinh arms work unchanged.
 
 Usage:
-  python3 -u -m scripts.s0_viz._staircase_harp11930 --arm S3 --n-steps 20
-  python3 -u -m scripts.s0_viz._staircase_harp11930 --arm S11 --n-steps 20
+  python3 -u -m scripts.s0_viz._staircase_harp11930 --arm S47 --cube harp_245
 """
 import argparse
 import sys
@@ -29,15 +28,39 @@ ARMS = {
     "S11": "S11_simple_convlstm_fasttf_extreme",
     "S13": "S13_simple_convlstm_dual_posweight100",
     "S16": "S16_simple_convlstm_dual_extreme_weighted",
+    "S18": "S18_simple_convlstm_dual_extreme_pw100",
+    "S20p5": "S20p5_dilated_gates",
+    "S30": "S30_stratified_sampler",
+    "S30b": "S30b_sampler_plus_fixes",
+    "S31": "S31_masked_loss",
+    "S32": "S32_histogram_match",
+    "S19": "S19_quantile_head_tau099",
+    "S22": "S22_orthogonal_init",
+    "S20": "S20_depthwise_widen192",
+    "S33": "S33_S16_val_fix",
+    "S34": "S34_S33_tin20",
+    "S36": "S36_physics_smoothness",
+    "S37": "S37_event_detection",
+    "S42b": "S42b_S16_new_data_xval",
+    "S43": "S43_S20_arch_new_data",
+    "S44": "S44_S43_k5_hidden256",
+    "S46": "S46_lowpass_asinh1e3",
+    "S47": "S47_pool4_tin25",
+    "S48": "S48_pool4_tin25_tfdecay12",
+    "S49": "S49_pool4_ss_perstep",
+    "S50": "S50_pool4_s16arch",
+    "S51": "S51_s50_trajloss",
+    "S52": "S52_longroll_tout16",
 }
-CUBE_NAME = "harp_11930"
-TILE = 64
-TILE_STRIDE = 64   # full-frame tiling stride (no overlap)
+# Defaults; --cube overrides, TILE/softening come from the arm config.
+# harp_11930: clean high-ceiling cube. harp_245/274/49 have LIMB EFFECT
+# (foreshortening + edge data loss) → unreliable curve metrics; focus on 11930.
+DEFAULT_CUBE = "harp_11930"
 
 
 def device():
-    if torch.backends.mps.is_available(): return torch.device("mps")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device("cuda" if torch.cuda.is_available()
+                        else "mps" if torch.backends.mps.is_available() else "cpu")
 
 
 @torch.no_grad()
@@ -87,6 +110,7 @@ def staircase(model, cube_norm, t0, t_in, t_out, n_steps, stride, dev):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", choices=list(ARMS), required=True)
+    ap.add_argument("--cube", default=DEFAULT_CUBE)
     ap.add_argument("--n-steps", type=int, default=20)
     ap.add_argument("--stride", type=int, default=2,
                     help="frames committed per step (also slide amount)")
@@ -94,6 +118,7 @@ def main():
     ap.add_argument("--grid-steps", type=int, default=4,
                     help="show only first N steps in the grid viz (rest still predicted)")
     args = ap.parse_args()
+    cube_name = args.cube
 
     arm_full = ARMS[args.arm]
     cfg = yaml.safe_load(Path(f"configs/ablations/{arm_full}.yaml").read_text())
@@ -102,13 +127,18 @@ def main():
         raise ValueError(f"stride={args.stride} must be <= t_out={t_out}")
     nm = cfg.get("normalization", {}).get("method", "zscore_per_cube")
     data_dir = Path(cfg["data"]["data_dir"])
+    # Tile = training window; softening from config (s1e3 arms differ from 1e6).
+    global TILE, TILE_STRIDE
+    TILE = int(cfg["data"].get("window_size") or 64)
+    TILE_STRIDE = TILE
+    soft = float(cfg.get("normalization", {}).get("signed_asinh_softening", 1.0e6))
 
     zarr_dirs = sorted(p for p in data_dir.glob("*.zarr") if p.is_dir())
-    zp = next(p for p in zarr_dirs if p.stem == CUBE_NAME)
+    zp = next(p for p in zarr_dirs if p.stem == cube_name)
     cube_arr, _ = load_cube(zp)
-    mu, sigma = (asinh_scale(cube_arr) if nm == "signed_asinh" else cube_stats(cube_arr))
+    mu, sigma = (asinh_scale(cube_arr, soft) if nm == "signed_asinh" else cube_stats(cube_arr))
     cube_norm = normalize(cube_arr, mu, sigma, nm)
-    print(f"cube {CUBE_NAME}: T={cube_arr.shape[0]} HxW={cube_arr.shape[1]}x{cube_arr.shape[2]}")
+    print(f"cube {cube_name}: T={cube_arr.shape[0]} HxW={cube_arr.shape[1]}x{cube_arr.shape[2]}")
 
     sets_meta = find_active_windows(cube_arr, t_in, t_out, TILE, n_sets=3)
     horizon = args.n_steps * args.stride
@@ -135,20 +165,13 @@ def main():
     pred_int = pred.sum(axis=(1, 2))
     gt_int = gt.sum(axis=(1, 2))
     abs_err = np.abs(pred_int - gt_int)
-    print(f"\n--- integrated winding flux per committed frame ---")
-    print(f"{'frame':>6} {'abs_t':>6} {'pred_int':>14} {'gt_int':>14} {'abs_err':>14}")
-    for i in range(horizon):
-        print(f"{i+1:>6d} {t0+t_in+i:>6d} {pred_int[i]:>14.2e} {gt_int[i]:>14.2e} {abs_err[i]:>14.2e}")
-
     mae = float(np.mean(abs_err))
     pred_var = float(np.var(pred_int))
     gt_var = float(np.var(gt_int))
     drift_corr = float(np.corrcoef(np.arange(horizon), abs_err)[0, 1])
-    print(f"\nMAE (integrated flux) = {mae:.3e}")
-    print(f"variance ratio (pred/gt) = {pred_var/gt_var:.3f}  (1.0 = matches GT variation)")
-    print(f"drift correlation (err vs horizon) = {drift_corr:+.3f}  (>0 = error grows with horizon)")
-
-    out_dir = Path(args.out or f"outputs/staircase_{args.arm.lower()}_{CUBE_NAME}")
+    print(f"\nMAE={mae:.3e} | var ratio(pred/gt)={pred_var/gt_var:.3f} (1.0=match) | "
+          f"drift corr={drift_corr:+.3f} (>0=error grows with horizon)")
+    out_dir = Path(args.out or f"outputs/staircase_{args.arm.lower()}_{cube_name}")
     out_dir.mkdir(parents=True, exist_ok=True)
     np.savez(out_dir / "series.npz",
              frame_abs=np.arange(t0 + t_in, t0 + t_in + horizon),
@@ -160,34 +183,27 @@ def main():
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
+        from scripts.s0_viz._staircase_viz import render_staircase_grid
         x = np.arange(t0 + t_in, t0 + t_in + horizon)
+        fig, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
         axes[0].plot(x, gt_int, "s-", color="tab:blue", label="GT")
-        axes[0].plot(x, pred_int, "o-", color="tab:red", label=f"{args.arm} pred (autoregressive)")
+        axes[0].plot(x, pred_int, "o-", color="tab:red", label=f"{args.arm} pred (AR)")
         axes[0].set_ylabel("integrated winding flux (Σ pixels)")
-        axes[0].set_title(f"{CUBE_NAME} staircase pred, {args.arm} ({arm_full}), "
-                          f"t0={t0}, stride={args.stride}, n_steps={args.n_steps}\n"
-                          f"MAE={mae:.2e} | var ratio={pred_var/gt_var:.3f}")
-        axes[0].legend(); axes[0].grid(alpha=0.3)
+        axes[0].set_title(f"{cube_name} staircase, {args.arm} ({arm_full}), t0={t0}, "
+                          f"stride={args.stride}\nMAE={mae:.2e} | var ratio={pred_var/gt_var:.3f}")
         axes[1].plot(x, abs_err, "o-", color="tab:purple", label="|pred - gt|")
         axes[1].set_xlabel("absolute frame index"); axes[1].set_ylabel("|abs err|")
-        axes[1].legend(); axes[1].grid(alpha=0.3)
-        fig.tight_layout()
-        png_path = out_dir / "integrated_flux.png"
-        fig.savefig(png_path, dpi=110)
+        for a in axes: a.legend(); a.grid(alpha=0.3)
+        fig.tight_layout(); fig.savefig(out_dir / "integrated_flux.png", dpi=110)
         plt.close(fig)
-        # staircase grid: GT row + per-step pred rows with overlaps
-        from scripts.s0_viz._staircase_viz import render_staircase_grid
         gs = min(args.grid_steps, args.n_steps)
-        grid_cols_show = (gs - 1) * args.stride + t_out
-        gt_full_n = cube_norm[t0 + t_in : t0 + t_in + grid_cols_show]
-        gt_full = denormalize(gt_full_n, mu, sigma, nm)
+        gt_full = denormalize(cube_norm[t0 + t_in : t0 + t_in + (gs - 1) * args.stride + t_out],
+                              mu, sigma, nm)
         full_preds = [denormalize(p, mu, sigma, nm) for p in full_preds_n[:gs]]
-        grid_path = out_dir / f"staircase_grid_{gs}steps.png"
         render_staircase_grid(gt_full, full_preds, t0 + t_in, args.stride, t_out,
                               f"{args.arm} ({arm_full}) — first {gs} of {args.n_steps} steps",
-                              grid_path)
-        print(f"\nWrote: {png_path}\n       {grid_path}\n       {out_dir/'series.npz'}")
+                              out_dir / f"staircase_grid_{gs}steps.png")
+        print(f"\nWrote {out_dir}/ (integrated_flux.png, staircase_grid, series.npz)")
     except Exception as e:
         print(f"plotting skipped: {e}")
 

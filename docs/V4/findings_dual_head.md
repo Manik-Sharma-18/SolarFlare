@@ -75,11 +75,18 @@ Neither model is *predicting* under chained autoregression — converges to stab
 
 ## Next levers (post-S16)
 
-If S16 stalls at S13 level (~0.04 test CLS-CSI) or below:
-1. **pos_weight sweep** with extreme_pixel_weight=25 fixed → Pareto frontier of regression vs classifier.
-2. **Quantile regression head** (pinball τ=0.5/0.9/0.99) → predict 99th-pct amplitude directly, skip classifier detour.
+**Loss / head levers** (orthogonal to architecture changes):
+1. **pos_weight sweep** with extreme_pixel_weight=25 fixed → Pareto frontier of regression vs classifier. S18 (pos_w 100 + ext_w 25) currently running, tests this.
+2. **Quantile regression head** (pinball τ=0.5/0.9/0.99) → predict 99th-pct amplitude directly, skip classifier detour. S19 running on mini_mps.
 3. **Event-onset reframe** → per-frame `P(any extreme in next K frames)` using GOES-aligned labels (independent of per-pixel rate). Escape route already flagged.
 4. **GradNorm balancing** → auto-balance α/β so per-batch grad norms equal.
+
+**Architecture levers** (from 2017–2025 lit sweep, see [`findings_architecture_research.md`](findings_architecture_research.md)):
+5. **Depthwise-separable ConvLSTM gates + widened hidden** (proposed S20) — 65× param reduction precedent + freed budget for hidden 64→256. Best gain/cost ratio in the literature.
+6. **E3D-LSTM** in-cell 3D-Conv + self-attn recall — Moving MNIST SSIM 0.910 vs ConvLSTM 0.713 at matched params.
+7. **TrajGRU** location-variant motion-warping recurrence — beats dilated ConvGRU on MovingMNIST++; fits solar granulation flow physics.
+8. **MIM** cascaded dual-memory replacement for forget gate — biggest single-paper jump (+24% SSIM, +50% MSE), heaviest refactor.
+9. **MS-RNN** multi-scale wrapper — receptive-field fix (current ~30 px vs active-region 50–200 px).
 
 ## Code touched (2026-05-29 wave)
 

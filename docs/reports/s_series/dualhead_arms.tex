@@ -1,4 +1,4 @@
-\section{Dual-head pivot (S13--S16)}\label{sec:s13}
+\section{Dual-head pivot (S13--S18)}\label{sec:dualhead_arms}
 
 Pivot rationale: the extreme-mask CSI is a thresholded binary, but
 S0--S11 train a regression loss on amplitude. Mismatch fixed by
@@ -35,7 +35,8 @@ starves L1 budget). Persistence skill +35.7\%. Val loss
 extreme mask. The classifier head is the load-bearing
 component; the regression head exists mainly to provide a spatial
 backbone for the classifier features.
-\\[2pt]\noindent\includegraphics[width=\linewidth]{s13_harp11930_fullframe}
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s13_harp11930_fullframe}\\[2pt]
+\noindent\includegraphics[width=\linewidth]{S13_loss}
 
 \subsection{S14 --- focal loss is the wrong instrument}
 \textbf{Loss:} same as S13 but BCE \(\to\) focal
@@ -49,7 +50,8 @@ gradients on the rare positives at our \(\sim\)0.1\% imbalance level.
 The classifier never gets enough signal to leave its initialisation.
 \textbf{Focal rejected for this task.} (Figure omitted --- the
 regression head produces the same pattern as S0--S11; the classifier is
-dead.)
+dead. No training history was retained for S14; the dead-classifier
+behaviour was confirmed from epoch logs only.)
 
 \subsection{S15 --- classifier-dominant (\(\alpha=0.1\))}
 \textbf{Loss:} \(\alpha{=}0.1, \beta{=}1, p{=}60\). Idea: starve the
@@ -61,6 +63,7 @@ weight still produces a useful head, somewhat counter-intuitively).\\
 gain. Confirms classifier head saturates above some \(\beta\)
 threshold and the remaining headroom is on the regression side, not
 classifier capacity. Recipe pointer for the winning hybrid (S16).
+\\[2pt]\noindent\includegraphics[width=\linewidth]{S15_loss}
 
 \subsection{S16 --- joint hybrid: weighted-MAE + classifier}\label{sec:s16}
 \textbf{Loss:} \(\alpha{=}1, \beta{=}1, p{=}60\),
@@ -95,4 +98,26 @@ ep8--9 producing nonzero reg CSI in-training) while the lighter
 Persistence skill 34\%, SSIM 0.69 --- comparable to S13 on auxiliary
 metrics. Hybrid hypothesis confirmed: the two heads' levers compose,
 they do not antagonise.
-\\[2pt]\noindent\includegraphics[width=\linewidth]{s16_harp11930_fullframe}
+\\[2pt]\noindent\includegraphics[width=\linewidth]{s16_harp11930_fullframe}\\[2pt]
+\noindent\includegraphics[width=\linewidth]{S16_loss}
+\label{fig:s16_loss}
+
+\subsection{S18 --- pos\_w {=} 100 \emph{plus} extreme weight (post-S16 stress test)}
+\textbf{Loss:} \(\alpha{=}1,\beta{=}1,p{=}100\),
+\texttt{extreme\_pixel\_weight}{=}25. Forks from S16 by pushing
+\texttt{pos\_weight} from 60 to 100 (S13's value) while keeping S16's
+weighted-MAE regression rescue.\\
+\textbf{Test:} CLS-CSI 0.0421, regression CSI 0.0199, cls HSS 0.0726.
+\textbf{Loses to S16 and slips just below persistence.} The val-loss
+curve descends only $\sim$6.6\,\% across 12 epochs
+(0.1805\(\to\)0.1685) before flattening; CLS-CSI oscillates in
+$[0.0023,0.0063]$ epoch-to-epoch with no clear upward trend after
+ep4.\\
+\textbf{Finding:} pos\_w 60 sits in a narrow optimum; pushing the
+classifier harder \emph{starves} both heads even with the
+extreme-weight rescue still active. Combined with the S13 vs.\ S15
+vs.\ S16 results above, the loss-weight axis is exhausted ---
+further gains have to come from architecture or representation, not
+loss reweighting.
+\\[2pt]\noindent\includegraphics[width=\linewidth]{S18_loss}
+\label{fig:s18_loss}

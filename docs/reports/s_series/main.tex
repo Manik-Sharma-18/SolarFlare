@@ -5,7 +5,7 @@
 \usepackage{booktabs}
 \usepackage{amsmath,amssymb}
 \usepackage[font=small,labelfont=bf]{caption}
-\usepackage{xcolor}
+\usepackage[table]{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black,citecolor=blue!60!black]{hyperref}
 \usepackage{listings}
 \usepackage{enumitem}
@@ -63,6 +63,23 @@ HARP cubes [245, 274, 49]. We close with a multi-step autoregressive
 single-step arms either mode-collapse (S3) or runaway-explode (S11)
 under chained prediction, indicating regression fidelity at horizons
 longer than 4 frames remains open.
+Finally we reframe the objective toward autoregressive \emph{curve}
+prediction (the spatial-mean winding-flux trajectory) and run a second
+arm family (S46--S52: low-pass loss, 4\(\times\) spatial pooling,
+scheduled sampling, a trajectory loss, and longer-rollout training).
+A robust $\sim$30-window bootstrap of the spatial-mean curve correlation
+on HARP 11930 shows \textbf{every arm's 95\% confidence interval straddles
+zero} --- including the arm trained directly at the evaluation horizon.
+We conclude this is a \emph{genuine predictability ceiling}: the
+ground-truth spatial-mean curve is mean-reverting with near-white
+deviations, so the optimal forecast is its climatological mean.
+Pivoting from forecasting to \emph{classification}, we show the same
+data supports a viable flare-forecasting task: a leave-AR-out classifier
+predicting \(\ge\)M-class flares within 12--24\,h reaches ROC-AUC
+\(\approx\)0.72 from \textbf{winding/helicity flux features alone}
+(\(\approx\)95\% of the full physics set; helicity is the key carrier).
+Winding flux is thus a flare-\emph{classification} signal, not a
+forecasting target.
 \end{abstract}
 
 \tableofcontents
@@ -79,6 +96,16 @@ longer than 4 frames remains open.
 \input{inference_combo.tex}
 \newpage
 \input{staircase.tex}
+\newpage
+\input{structural_arms.tex}
+\newpage
+\input{new_data_arms.tex}
+\newpage
+\input{curve_objective.tex}
+\newpage
+\input{flare_classification.tex}
+\newpage
+\input{limitations.tex}
 \newpage
 \input{summary.tex}
 

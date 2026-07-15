@@ -5,8 +5,10 @@ description: Multi-machine training slot coordination for SolarFlare — queue e
 
 # SolarFlare Training Workflow
 
-Multi-machine training queue for SolarFlare. Five slots across three machines.
-Prevents slot collisions. Dispatches via `scripts/launch_slot.sh`.
+Multi-machine training queue. Five slots across three machines. Dispatches via
+`scripts/launch_slot.sh`. Prevents slot collisions.
+
+See `CLAUDE.md` § "Training queue gotchas" for recurring failure modes.
 
 ---
 
@@ -20,180 +22,141 @@ Prevents slot collisions. Dispatches via `scripts/launch_slot.sh`.
 | `studio_cpu`   | Mac Studio          | CPU    | same                                             | `python3`       |
 | `5060ti_cuda`  | RTX 5060 Ti (`5060ti`) | CUDA | `/home/indra/solarflare`                        | `venv/bin/python3` |
 
-**RAM check before launch:** Mac Studio ≥50 GB free+inactive; Mac Mini ≥20 GB; 5060ti ≥16 GB VRAM.
+**Free-resource gate:** Mac Studio ≥50 GB RAM; Mac Mini ≥20 GB RAM; 5060ti ≥16 GB VRAM.
+
+Session naming: `sf-<user>-<slot>-<script_name>`. Tmux state survives ssh disconnects; the launcher recovers stale state on next dispatch.
 
 ---
 
 ## 1. Quick Commands
 
 ```bash
-# Submit (auto-picks free slot)
+# Submit (auto-picks free slot; --device-pref filters; --slot-pref reserves)
 scripts/queue_submit.sh main.py --args "--config configs/finetune_winding_flux.yaml"
+scripts/queue_submit.sh main.py --slot-pref 5060ti_cuda --args "..."
+scripts/queue_submit.sh main.py --device-pref cuda      --args "..."
 
-# CUDA-only (RTX 5060 Ti)
-scripts/queue_submit.sh main.py --device-pref cuda --args "--config configs/finetune_winding_flux.yaml"
+# Inspect
+scripts/slot_status.sh             # FREE / RUNNING / DONE per slot
+scripts/queue_list.sh [--user manik]
+sqlite3 -header -column .controller/queue.db \
+  "SELECT id, step_name, status, launched_slot FROM queue_entries \
+   WHERE status IN ('running','queued') ORDER BY id DESC"
 
-# Hard slot reservation
-scripts/queue_submit.sh main.py --slot-pref 5060ti_cuda --args "--config configs/finetune_winding_flux.yaml"
-
-# Check all slots
-scripts/slot_status.sh
-
-# View queue
-scripts/queue_list.sh
-scripts/queue_list.sh --user manik
-
-# Cancel entry
+# Cancel
 curl -X POST http://mac-mini.local:7434/cancel/<id>
 ```
 
+**Protocol:** every training run goes through `queue_submit.sh` or `launch_slot.sh`. Direct `python3 main.py` collides with active slots and corrupts shared GPU state.
+
 ---
 
-## 2. Launch Protocol (MANDATORY)
+## 2. Controller Daemon
 
-Every training run goes through `scripts/queue_submit.sh` or `scripts/launch_slot.sh`.
-Never launch training directly — slot collisions cause silent OOM or corrupted runs.
+Runs on Mac Mini, port 7434. Dispatches every 30s. SQLite at `.controller/queue.db`. Round-robins across users; `--device-pref cuda` confines to `5060ti_cuda`; `--slot-pref` is exclusive.
+
+**Start (Mac Mini only, from venv-activated shell):**
 
 ```bash
-# One-time identity setup (auto-prompted on first submit)
-echo "manik" > .sf_user
+source /Volumes/T9/IndraAstra/.venv/bin/activate   # MUST resolve `python3` to a torch-having interpreter
+nohup python3 scripts/experiment_controller.py >> logs/experiment_controller.log 2>&1 &
+disown
+```
 
-# Submit to queue
-scripts/queue_submit.sh <script> [--device-pref cuda|mps|any] [--slot-pref <slot>] [--args "..."]
+Without venv activation, `launch_slot.sh` (which uses bare `python3` for mini/studio slots) spawns torch-less children → silent `ModuleNotFoundError: torch` in ~35 s. See `[[controller_torch_path]]`.
 
-# Direct launch (only when you know the slot is yours)
-scripts/launch_slot.sh <slot> <script> [extra_args]
+**Status:**
+
+```bash
+curl -s "${SF_CONTROLLER_URL:-http://mac-mini.local:7434}/status" | python3 -m json.tool
+```
+
+On the Mac Mini itself, `mac-mini.local` doesn't resolve — export `SF_CONTROLLER_URL=http://localhost:7434` first.
+
+**Preflight before any submit:**
+
+```bash
+curl -sf "${SF_CONTROLLER_URL:-http://localhost:7434}/status" >/dev/null \
+  || echo "Controller down — start it (see above) before submitting"
 ```
 
 ---
 
-## 3. Slot Coordination
+## 3. CUDA Launch Checklist (5060ti_cuda)
 
-`scripts/slot_status.sh` shows all 5 slots as `[FREE]`, `[RUNNING]`, or `[DONE]`.
+`launch_slot.sh` audits scripts before dispatching to `5060ti_cuda`:
 
-Session naming: `sf-<user>-<slot>-<script_name>` — encodes slot identity.
+| Marker              | Why                                                |
+|---------------------|----------------------------------------------------|
+| `pin_memory=True`   | DMA overlap, async H→D transfer                    |
+| `non_blocking=True` | Concurrent transfer + compute                      |
+| No fp16 GradScaler  | fp32 faster on Blackwell (step801 / dhiraj/sgnnet) |
 
-Cleanup happens automatically when training exits. If ssh disconnects, the tmux
-session survives; the next launcher detects the stale state and recovers.
+Add `# CUDA-5060ti-validated` anywhere in the script to bypass, or pass `--unsafe-cuda-launch`. Use sparingly.
 
----
-
-## 4. Controller Daemon
-
-Runs on Mac Mini, port 7434. Dispatches every 30s. SQLite at `.controller/queue.db`.
-
-**Preflight before any submit:** `curl -sf http://localhost:7434/status >/dev/null || nohup python3 scripts/experiment_controller.py > logs/experiment_controller.log 2>&1 & disown`
-
-**On the Mac Mini itself, `mac-mini.local` does not resolve.** Export `SF_CONTROLLER_URL=http://localhost:7434` (or prefix submit/cancel commands) — default URL only works from other machines on the LAN.
-
-```bash
-# Start (one-time, Mac Mini only)
-nohup python3 scripts/experiment_controller.py > logs/experiment_controller.log 2>&1 &
-
-# Status check (off-Mac-Mini)
-curl http://mac-mini.local:7434/status | python3 -m json.tool
-# Status check (on Mac Mini)
-curl http://localhost:7434/status | python3 -m json.tool
-```
-
-Round-robins across users. `--device-pref cuda` entries only run on `5060ti_cuda`.
-`--slot-pref <slot>` reserves that slot exclusively for the entry.
+**VRAM preflight (MANDATORY):** every 5060ti_cuda launch reads remote `nvidia-smi` against `configs/_vram_budget.yaml`. Blocked unless `free ≥ budget × (1 + buffer)`. Default buffer 40%; tune via `SF_VRAM_BUFFER_PCT`; bypass via `--skip-vram-check`. Tuning notes in `USAGE.md` § CUDA Best Practices.
 
 ---
 
-## 5. CUDA Launch Checklist (5060ti_cuda)
+## 4. Sync Verification (remote slots)
 
-Scripts launched on `5060ti_cuda` must pass this audit (enforced by `launch_slot.sh`):
+`launch_slot.sh` runs `scripts/sync_verify.sh` automatically whenever `HOST != local` (`studio_*`, `5060ti_cuda`). Two levels:
 
-| Marker            | Why                                        |
-|-------------------|--------------------------------------------|
-| `pin_memory=True` | DMA overlap, async H→D transfer            |
-| `non_blocking=True` | Concurrent transfer + compute            |
-| No fp16 GradScaler | fp32 is faster on Blackwell (step801 evidence from dhiraj/sgnnet) |
+| Level | What it checks                                              | How                                       |
+|-------|-------------------------------------------------------------|-------------------------------------------|
+| code  | `*.py *.sh *.yaml *.yml *.md` outside outputs/data/logs/etc | SHA256 manifest local vs remote           |
+| data  | `data/*.zarr` set + sizes                                   | `du -sk data/*.zarr` local vs remote      |
 
-Add `# CUDA-5060ti-validated` anywhere in script to bypass audit (use sparingly).
+Exit: `0`=in sync, `1`=error, `2`=out of sync. Out-of-sync aborts the launch.
 
-Override: `scripts/launch_slot.sh 5060ti_cuda script.py --unsafe-cuda-launch`
+```bash
+# Inspect or repair
+scripts/sync_verify.sh --slot <slot> --level {code|data|both} [--fix]
 
-### 5a. VRAM Preflight (5060ti_cuda, MANDATORY)
+# Launch with auto-rsync
+scripts/launch_slot.sh 5060ti_cuda main.py --sync-fix --config <cfg>
 
-Every 5060ti_cuda launch checks remote `nvidia-smi` against a per-config
-budget in `configs/_vram_budget.yaml`. Blocked unless
-`free ≥ budget × (1 + buffer)`. Default buffer 40%. Tune via
-`SF_VRAM_BUFFER_PCT`; override via `--skip-vram-check`.
+# Bypass (only when remote is intentionally diverged — branch experiment, etc.)
+scripts/launch_slot.sh 5060ti_cuda main.py --skip-sync-check --config <cfg>
+```
 
-Full details and tuning notes: `USAGE.md` §CUDA Best Practices.
+Why this exists: silent staleness on 5060ti (local code newer than remote) caused multiple "fixes that did nothing" — remote was running old code.
 
 ---
 
-## 6. Sync Verification (MANDATORY for remote slots)
+## 5. Monitor Live Training
 
-`launch_slot.sh` runs `scripts/sync_verify.sh` as preflight whenever
-`HOST != local` (i.e. `studio_*` and `5060ti_cuda`). Two levels:
-
-| Level | What it checks | How |
-|-------|---------------|-----|
-| **code** | All `*.py *.sh *.yaml *.yml *.md` outside `outputs/`, `data/`, `logs/`, `.git/`, `venv/`, `__pycache__/`, `.controller/` | SHA256 hash manifest local vs remote |
-| **data** | `data/*.zarr` set + sizes (kB) | `du -sk data/*.zarr` local vs remote |
-
-Exit codes: `0`=in sync, `1`=error, `2`=out of sync.
-
-If out of sync, the launch aborts. Resolve by:
+For **read-only** status (preferred — no risk of accidental Ctrl-C):
 
 ```bash
-# Auto-rsync (code + data)
-scripts/sync_verify.sh --slot 5060ti_cuda --level both --fix
+# Local mini
+tmux capture-pane -t sf-manik-mini_mps-main -p | tail -60
 
-# Or rsync as part of launch
-scripts/launch_slot.sh 5060ti_cuda main.py --sync-fix --config configs/finetune_winding_flux.yaml
+# Remote (replace <host>/<slot>/<tmux>: mac-studio uses /opt/homebrew/bin/tmux,
+# 5060ti uses /usr/bin/tmux)
+ssh <host> "<tmux> capture-pane -t sf-manik-<slot>-main -p | tail -60"
 
-# Bypass (only when remote is intentionally diverged — e.g. branch experiment)
-scripts/launch_slot.sh 5060ti_cuda main.py --skip-sync-check ...
+# Collapse tqdm spam to per-epoch summary
+ssh <host> "grep -E 'Epoch [0-9]+/|val_loss|Saved best|CLS-CSI' \
+  <repo>/logs/main__<slot>.log | tail -40"
 ```
 
-Why this exists: silent staleness on `5060ti` (local code newer than remote)
-caused multiple "fixes that did nothing" — remote was running old code.
-Verification + auto-rsync makes that scenario impossible to hit by accident.
-
-Direct standalone use:
+For interactive debug (attach — be careful with Ctrl-C):
 
 ```bash
-# Check only (no transfer)
-scripts/sync_verify.sh --slot 5060ti_cuda --level code
-scripts/sync_verify.sh --slot 5060ti_cuda --level data
-scripts/sync_verify.sh --slot 5060ti_cuda --level both
-
-# Push local → remote
-scripts/sync_verify.sh --slot studio_mps --level code --fix
+tmux attach -t sf-manik-<slot>-main                     # local
+ssh <host> -t <tmux> attach -t sf-manik-<slot>-main     # remote
 ```
+
+Output dirs live under each slot's working dir (see §0), NOT the local repo — `find outputs/` locally won't see remote runs.
 
 ---
 
-## 7. Monitor Live Training
+## 6. Smoke Test Before Launch
 
 ```bash
-# Attach to local session
-tmux attach -t sf-manik-mini_mps-main
-
-# Mac Studio
-ssh mac-studio -t /opt/homebrew/bin/tmux attach -t sf-manik-studio_mps-main
-
-# RTX 5060 Ti
-ssh 5060ti -t /usr/bin/tmux attach -t sf-manik-5060ti_cuda-main
+python3 main.py --help                                                          # import + config sanity
+scripts/launch_slot.sh 5060ti_cuda main.py --config configs/smoke_5060ti.yaml   # 1-epoch full-pipeline dry run
 ```
 
----
-
-## 8. Smoke Test Before Launch
-
-```bash
-python3 main.py --help
-```
-
-Never launch a script you haven't sanity-checked — catches import errors and config typos.
-
-V4 ships a dedicated 1-epoch smoke config to dry-run the full pipeline on 5060ti:
-
-```bash
-scripts/launch_slot.sh 5060ti_cuda main.py --config configs/smoke_5060ti.yaml
-```
+Never launch a script you haven't sanity-checked — catches import errors and config typos before a slot reservation is wasted.

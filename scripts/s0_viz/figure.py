@@ -55,13 +55,18 @@ def render_cube_figure(
     fig = plt.figure(figsize=(2.0 * ncol, 2.2 * nrow))
     gs = GridSpec(nrow, ncol, figure=fig, hspace=0.45, wspace=0.3)
 
+    # Norm computed from GT only — keeps GT spectrum identical across arms
+    # (pred clips/saturates visibly when it overshoots, which is informative).
+    all_gt = np.concatenate([st["gt"].ravel() for st in sets])
+    norm = _symlog_norm(all_gt, all_gt)
+    all_axes, im = [], None
+
     for r, st in enumerate(sets):
         pred, gt = st["pred"], st["gt"]
-        norm = _symlog_norm(gt, pred)
-        row_axes, im = [], None
+        row_axes = []
         for k in range(t_out):
             ax = fig.add_subplot(gs[r, k])
-            im = ax.imshow(pred[k], cmap="RdBu_r", norm=norm)
+            im = ax.imshow(pred[k], cmap="seismic", norm=norm)
             ax.set_xticks([]); ax.set_yticks([])
             row_axes.append(ax)
             if r == 0:
@@ -70,15 +75,16 @@ def render_cube_figure(
                 ax.set_ylabel(f"set {r+1}\nt0={st['t_start']}", fontsize=8)
         for k in range(t_out):
             ax = fig.add_subplot(gs[r, t_out + k])
-            im = ax.imshow(gt[k], cmap="RdBu_r", norm=norm)
+            im = ax.imshow(gt[k], cmap="seismic", norm=norm)
             ax.set_xticks([]); ax.set_yticks([])
             row_axes.append(ax)
             if r == 0:
                 ax.set_title(f"GT t+{k+1}", fontsize=8)
-        # symlog colour spectrum for this set (scale differs per set)
-        cb = fig.colorbar(im, ax=row_axes, fraction=0.012, pad=0.01)
-        cb.ax.tick_params(labelsize=6)
-        cb.set_label("winding flux (symlog)", fontsize=7)
+        all_axes.extend(row_axes)
+
+    cb = fig.colorbar(im, ax=all_axes, fraction=0.012, pad=0.01)
+    cb.ax.tick_params(labelsize=6)
+    cb.set_label("winding flux (symlog)", fontsize=7)
 
     # bottom row: one small pred-vs-actual spatial-mean graph per set
     bottom = GridSpecFromSubplotSpec(1, len(sets), subplot_spec=gs[nrow - 1, :], wspace=0.35)
@@ -97,7 +103,7 @@ def render_cube_figure(
 
     fig.suptitle(
         f"{name}  [{split.upper()}]   {model_label}\n"
-        f"{region_note}; symlog colour scale per-set from GT",
+        f"{region_note}; symlog colour scale shared across all sets (matches staircase)",
         fontsize=11,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)

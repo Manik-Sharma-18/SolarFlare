@@ -8,7 +8,7 @@ from typing import Dict, Optional, Tuple
 from tqdm import tqdm
 
 from utils.device import get_amp_context
-from ..losses import CompositeLoss
+from ..losses import CompositeLoss, DualHeadLoss
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ def train_epoch(
     show_progress: bool = True,
     output_channels: int = 1,
     max_consecutive_nan: int = 10,
-    grad_norm_warning_threshold: float = 100.0
+    grad_norm_warning_threshold: float = 100.0,
+    ema=None,
 ) -> Tuple[float, int, Optional[Dict[str, float]]]:
     """
     Train for one epoch with NaN detection and gradient monitoring.
@@ -72,13 +73,13 @@ def train_epoch(
     if loss_fn is None:
         loss_fn = nn.L1Loss()
 
-    # Per-component tracking for CompositeLoss
-    use_component_tracking = isinstance(loss_fn, CompositeLoss)
-    component_keys = ['l1', 'ssim', 'extreme', 'temporal_diff', 'temporal_var', 'asymmetric']
+    # Per-component tracking for CompositeLoss + DualHeadLoss.
+    # Keys vary per loss class; resolved lazily on the first batch via the
+    # `return_components=True` result so new components (sobel, spectral,
+    # tgrad, iflux, …) auto-appear without touching this list.
+    use_component_tracking = isinstance(loss_fn, (CompositeLoss, DualHeadLoss))
+    component_keys = []
     component_sums = {}
-    if use_component_tracking:
-        for key in component_keys:
-            component_sums[key] = 0.0
 
     iterator = tqdm(dataloader, desc=f"Epoch {epoch}") if show_progress else dataloader
 
@@ -149,12 +150,21 @@ def train_epoch(
         scaler.step(optimizer)
         scaler.update()
 
+        if ema is not None:
+            ema.update(model)
+
         total_loss += loss.item()
         valid_batches += 1
 
         if use_component_tracking:
+            if not component_keys:
+                component_keys = [k for k in components.keys() if k != 'total']
+                for k in component_keys:
+                    component_sums[k] = 0.0
             for key in component_keys:
-                component_sums[key] += components[key].item()
+                v = components.get(key)
+                if v is not None:
+                    component_sums[key] += float(v.item() if hasattr(v, 'item') else v)
 
         if show_progress:
             iterator.set_postfix({'loss': f'{loss.item():.6f}'})

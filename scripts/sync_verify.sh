@@ -53,6 +53,7 @@ find . -type f \
   -not -path './.git/*' -not -path './.venv/*' -not -path './venv/*' \
   -not -path './__pycache__/*' -not -path './*/__pycache__/*' \
   -not -path './.controller/*' -not -path './.claude/projects/*' \
+  -not -path './archive/*' \
   | LC_ALL=C sort
 EOF
 }
@@ -122,6 +123,7 @@ fix_code() {
     --exclude='outputs/' --exclude='outputs_*/' --exclude='data/' --exclude='logs/' \
     --exclude='.git/' --exclude='.venv/' --exclude='venv/' \
     --exclude='__pycache__/' --exclude='.controller/' --exclude='.claude/projects/' \
+    --exclude='archive/' \
     --include='*/' \
     --include='*.py' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.md' \
     --exclude='*' \

@@ -11,6 +11,7 @@ from .setup import (
     build_optimizer, build_scheduler, init_history, maybe_resume,
     apply_transfer_learning,
 )
+from .ema import build_ema, ModelEMA
 from .reporting import print_config_banner
 
 
@@ -40,6 +41,8 @@ class TrainContext:
     ssim_data_range: float
     transfer_config: Optional[dict]
     checkpoints_dir: Path
+    ema_use_for_eval: bool
+    ema_use_for_checkpoint: bool
     # working state (mutated by the loop)
     optimizer: torch.optim.Optimizer
     scheduler: Any
@@ -50,6 +53,7 @@ class TrainContext:
     history: Dict[str, list]
     normalization_params: Optional[dict]
     unfreeze_epoch: Optional[int]
+    ema: Optional[ModelEMA]
 
 
 def prepare_training(model, config, device, normalization_params) -> TrainContext:
@@ -101,6 +105,12 @@ def prepare_training(model, config, device, normalization_params) -> TrainContex
             scheduler_enabled=scheduler_enabled,
         )
 
+    # EMA shadow (built after transfer-learning may have mutated params)
+    ema_config = config.get('ema', {})
+    ema = build_ema(model, ema_config)
+    ema_use_for_eval = bool(ema_config.get('use_for_eval', True))
+    ema_use_for_checkpoint = bool(ema_config.get('use_for_checkpoint', True))
+
     checkpoints_dir = save_dir / 'checkpoints'
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
@@ -129,4 +139,6 @@ def prepare_training(model, config, device, normalization_params) -> TrainContex
         best_val_loss=best_val_loss, patience_counter=patience_counter,
         start_epoch=start_epoch, history=history,
         normalization_params=normalization_params, unfreeze_epoch=unfreeze_epoch,
+        ema=ema, ema_use_for_eval=ema_use_for_eval,
+        ema_use_for_checkpoint=ema_use_for_checkpoint,
     )

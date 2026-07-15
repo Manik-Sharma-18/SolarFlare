@@ -117,13 +117,39 @@ def launch_entry(conn: sqlite3.Connection, entry: sqlite3.Row, slot: str) -> boo
     return False
 
 
+_RECONCILE_STRIKES: Dict[int, int] = {}
+RECONCILE_REQUIRED_STRIKES = 2
+
+
 def reconcile_running(conn: sqlite3.Connection, free_slots: List[str]) -> None:
+    # Two-strike rule: a running job's slot must report FREE on two consecutive ticks
+    # before we declare it done. Defends against transient slot_status probe failures
+    # (ssh ConnectTimeout glitch reading as FREE → false reconcile → kill live training).
     running = conn.execute("SELECT * FROM queue_entries WHERE status='running'").fetchall()
+    active_ids = set()
     for e in running:
         slot = e["launched_slot"] or e["slot_pref"]
-        if slot and slot in free_slots:
-            log.info("Reconcile: id=%d slot=%s → done", e["id"], slot)
-            set_status(conn, e["id"], "done", {"finished_at": now_iso()})
+        if not slot:
+            continue
+        active_ids.add(e["id"])
+        if slot in free_slots:
+            strikes = _RECONCILE_STRIKES.get(e["id"], 0) + 1
+            _RECONCILE_STRIKES[e["id"]] = strikes
+            if strikes >= RECONCILE_REQUIRED_STRIKES:
+                log.info("Reconcile: id=%d slot=%s → done (%d consecutive FREE)",
+                         e["id"], slot, strikes)
+                set_status(conn, e["id"], "done", {"finished_at": now_iso()})
+                _RECONCILE_STRIKES.pop(e["id"], None)
+            else:
+                log.warning("Reconcile pending: id=%d slot=%s strike=%d/%d (will reconcile if still FREE next tick)",
+                            e["id"], slot, strikes, RECONCILE_REQUIRED_STRIKES)
+        else:
+            if _RECONCILE_STRIKES.pop(e["id"], None) is not None:
+                log.info("Reconcile cleared: id=%d slot=%s back to RUNNING/UNKNOWN", e["id"], slot)
+    # Drop strike state for jobs no longer running (terminal status).
+    for jid in list(_RECONCILE_STRIKES):
+        if jid not in active_ids:
+            _RECONCILE_STRIKES.pop(jid, None)
 
 
 # --- Tick -------------------------------------------------------------------

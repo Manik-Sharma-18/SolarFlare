@@ -44,6 +44,10 @@ class SimpleConvLSTM(nn.Module):
         residual: bool = False,
         norm_type: str = "batch",
         enable_classifier_head: bool = False,
+        kernel_dilations=None,
+        recurrent_init: str = "default",
+        depthwise_separable: bool = False,
+        ss_per_step: bool = False,
     ):
         super().__init__()
         self.t_out = t_out
@@ -53,9 +57,17 @@ class SimpleConvLSTM(nn.Module):
         self.residual = residual
         self.norm_type = norm_type
         self.enable_classifier_head = enable_classifier_head
+        # Per-step scheduled sampling: ramp TF prob DOWN across the decode
+        # rollout so later steps train autoregressively even early in training.
+        # Mirrors deployment (each committed frame feeds the next) and curbs
+        # long-horizon error compounding (S48 diverged; S47 fast-decay didn't).
+        self.ss_per_step = ss_per_step
 
-        self.encoder_cells = self._make_stack(input_channels, hidden_dim, kernel_size, num_layers)
-        self.decoder_cells = self._make_stack(output_channels, hidden_dim, kernel_size, num_layers)
+        dilations = list(kernel_dilations) if kernel_dilations is not None else [1] * num_layers
+        assert len(dilations) == num_layers, (
+            f"kernel_dilations length {len(dilations)} must == num_layers {num_layers}")
+        self.encoder_cells = self._make_stack(input_channels, hidden_dim, kernel_size, dilations, recurrent_init, depthwise_separable)
+        self.decoder_cells = self._make_stack(output_channels, hidden_dim, kernel_size, dilations, recurrent_init, depthwise_separable)
         self.enc_norms = nn.ModuleList(self._make_norm(hidden_dim) for _ in range(num_layers))
         self.dec_norms = nn.ModuleList(self._make_norm(hidden_dim) for _ in range(num_layers))
         self.head = nn.Conv2d(hidden_dim, output_channels, kernel_size=1)
@@ -78,10 +90,18 @@ class SimpleConvLSTM(nn.Module):
         return nn.BatchNorm2d(hidden)
 
     @staticmethod
-    def _make_stack(in_ch: int, hidden: int, k: int, n: int) -> nn.ModuleList:
-        """Layer 0 consumes ``in_ch``; deeper layers consume ``hidden``."""
+    def _make_stack(in_ch: int, hidden: int, k: int, dilations,
+                    recurrent_init: str = "default",
+                    depthwise_separable: bool = False) -> nn.ModuleList:
+        """Layer 0 consumes ``in_ch``; deeper layers consume ``hidden``.
+        Per-layer dilation from ``dilations``. ``recurrent_init`` applied to
+        every cell's recurrent slice. ``depthwise_separable`` swaps the
+        fused gate conv for a (depthwise + pointwise) factorization."""
         return nn.ModuleList(
-            ConvLSTMCell(in_ch if i == 0 else hidden, hidden, k) for i in range(n)
+            ConvLSTMCell(in_ch if i == 0 else hidden, hidden, k,
+                         dilation=d, recurrent_init=recurrent_init,
+                         depthwise_separable=depthwise_separable)
+            for i, d in enumerate(dilations)
         )
 
     def _init_states(self, ref: torch.Tensor) -> State:
@@ -145,9 +165,15 @@ class SimpleConvLSTM(nn.Module):
             # as the next step's input (and residual base) with probability
             # teacher_forcing_ratio — anchors the rollout to truth and curbs
             # autoregressive error compounding.
+            # Per-step ramp: step 0 keeps the full ratio, the last step → 0,
+            # so the tail of every rollout is autoregressive regardless of
+            # epoch. Plain mode uses one ratio for all steps.
+            step_tf = teacher_forcing_ratio
+            if self.ss_per_step and self.t_out > 1:
+                step_tf *= 1.0 - t / (self.t_out - 1)
             if (self.training and y_true is not None
-                    and teacher_forcing_ratio > 0.0
-                    and torch.rand(()) < teacher_forcing_ratio):
+                    and step_tf > 0.0
+                    and torch.rand(()) < step_tf):
                 frame = y_true[:, : self.output_channels, t]
             else:
                 frame = pred

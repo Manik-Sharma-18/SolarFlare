@@ -1,18 +1,26 @@
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering
 \caption[Forecast results]{\textbf{Forecast accuracy on the held-out active
-region.} Mean absolute error (normalised units) over all $61$ gap-aware windows
-of HARP~11930, for the ConvLSTM and for the persistence baseline, with the skill
-of Eq.~\eqref{eq:skill}. The model was trained only on the other $26$ regions.}
+region.} Mean absolute error (normalised units) over all $46$ gap-aware windows
+of HARP~11930, for the ConvLSTM against two baselines, with the skill of
+Eq.~\eqref{eq:skill}. The scalar-mean baseline replaces each frame by its single
+spatial-mean value: because the winding field is bipolar its spatial mean nearly
+cancels, and the error is catastrophic---quantifying how much of the signal lives
+in the spatial structure the scalar discards. The model was trained only on the
+other $26$ regions, and the \emph{final} model is reported---no checkpoint is
+selected on the held-out region. The skill carries a bootstrap $95\%$ confidence
+interval (resampling windows, $B=20{,}000$).}
 \label{tab:results}
-\begin{tabular}{@{}lc@{}}
-\toprule
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|l|c|}
+\hline
 Forecaster (held-out HARP~11930, $48$-min horizon) & MAE \\
-\midrule
-Persistence (copy last observed frame)             & $0.0117$ \\
-ConvLSTM encoder--forecaster (this work)           & $\mathbf{0.0106}$ \\
-\midrule
-\textbf{Skill over persistence} & \multicolumn{1}{r}{$\mathbf{+9.3\%}$} \\
-\bottomrule
+\hline\hline
+Scalar-mean baseline (spatial mean, structure discarded) & $0.398$ \\ \hline
+Persistence (copy last observed frame)             & $0.0115$ \\ \hline
+ConvLSTM encoder--forecaster (this work)           & $\mathbf{0.0105}$ \\
+\hline\hline
+\textbf{Skill over persistence} & $\mathbf{+8.6\%}$ \small$[+6.8,+10.3]$ \\
+\hline
 \end{tabular}
 \end{table}

@@ -1,0 +1,21 @@
+\begin{table}[!htbp]
+\centering
+\small
+\caption[Clip sensitivity]{\textbf{Sensitivity to the normalisation clip.}
+Held-out skill (leave-one-AR-out, HARP~11930) under an identical quick-training
+configuration, varying the clip limit and the robust-scale percentile one at a
+time. Widening the clip limit leaves the skill essentially unchanged---the clip
+discards negligible information. The scale percentile is the more consequential
+knob (it interacts with the fixed Huber elbow) and is kept at its tuned value of
+$99.5$.}
+\label{tab:clip}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|l|l|c|}
+\hline
+Clip limit & Robust-scale pct.\ & Held-out skill \\
+\hline\hline
+$[-1,1]$ (default) & $99.5$ & $+0.040$ \\ \hline
+$[-1.5,1.5]$       & $99.5$ & $+0.041$ \\ \hline
+$[-1,1]$           & $99.9$ & $+0.006$ \\ \hline
+\end{tabular}
+\end{table}

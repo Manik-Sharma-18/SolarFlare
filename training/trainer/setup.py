@@ -66,6 +66,19 @@ def build_scheduler(optimizer, scheduler_config: Dict[str, Any], epochs: int) ->
             optimizer, T_max=epochs, eta_min=eta_min
         )
         return scheduler, True, scheduler_type
+    elif scheduler_type == 'cosine_warmup':
+        warmup_epochs = scheduler_config.get('warmup_epochs', 1)
+        eta_min = scheduler_config.get('cosine_eta_min', 1e-6)
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup_epochs,
+        )
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(1, epochs - warmup_epochs), eta_min=eta_min,
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs],
+        )
+        return scheduler, True, scheduler_type
     elif scheduler_type == 'step':
         step_size = scheduler_config.get('step_size', 10)
         gamma = scheduler_config.get('step_gamma', 0.5)

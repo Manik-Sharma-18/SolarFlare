@@ -22,6 +22,7 @@ from .temporal import (
 )
 from .composite import CompositeLoss
 from .dual_head import DualHeadLoss
+from .quantile import PinballLoss
 from .factory import get_loss_function
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "apply_temporal_weights",
     "CompositeLoss",
     "DualHeadLoss",
+    "PinballLoss",
     "get_loss_function",
 ]

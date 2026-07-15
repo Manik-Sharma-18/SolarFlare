@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Show state of all 5 SolarFlare training slots across 3 machines.
-# State: RUNNING (pane alive + active children) | DONE (idle) | FREE (no session)
+# State: RUNNING (pane alive + active children) | DONE (idle) | FREE (no session) | UNKNOWN (probe failed)
 # Session convention: sf-<user>-<slot>-<step>
 #
 # Usage: scripts/slot_status.sh
@@ -8,11 +8,20 @@
 set -uo pipefail
 
 PREFIX="sf-"
+SSH_ERR_SENTINEL="__SSH_ERR__"
 
 remote_cmd() {
-  local host="$1" cmd="$2"
-  if [[ "$host" == "local" ]]; then TERM=xterm-256color bash -c "$cmd"
-  else ssh -o ConnectTimeout=4 "$host" "$cmd"; fi
+  # Echo stdout on success; echo SSH_ERR_SENTINEL only when ssh itself fails (exit 255 = conn/auth).
+  # Remote cmd non-zero exits (grep no-match etc) pass through as empty stdout — same as before.
+  # Never silently treat a host-unreachable as empty output (that's what triggered the reconcile race).
+  local host="$1" cmd="$2" out rc
+  if [[ "$host" == "local" ]]; then
+    TERM=xterm-256color bash -c "$cmd" 2>/dev/null
+    return 0
+  fi
+  out=$(ssh -o ConnectTimeout=4 -o BatchMode=yes "$host" "$cmd" 2>/dev/null); rc=$?
+  if [[ $rc -eq 255 ]]; then echo "$SSH_ERR_SENTINEL"; return 1; fi
+  printf '%s\n' "$out"
 }
 
 log_dir_for_host() {
@@ -42,8 +51,11 @@ check_slot() {
 
   local sessions
   sessions=$(remote_cmd "$host" \
-    "$tmux_cmd list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^sf-[^-]+-${slot}-'" \
-    2>/dev/null || true)
+    "$tmux_cmd list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^sf-[^-]+-${slot}-'")
+
+  if [[ "$sessions" == "$SSH_ERR_SENTINEL" ]]; then
+    printf "[UNKNOWN]    (ssh probe failed)\n"; return
+  fi
 
   local log_dir; log_dir=$(log_dir_for_host "$host")
 
@@ -55,14 +67,20 @@ check_slot() {
   while IFS= read -r s; do
     local info dead pid
     info=$(remote_cmd "$host" \
-      "$tmux_cmd list-panes -t '$s' -F '#{pane_dead} #{pane_pid}' 2>/dev/null | head -1" \
-      2>/dev/null || echo "1 0")
+      "$tmux_cmd list-panes -t '$s' -F '#{pane_dead} #{pane_pid}' 2>/dev/null | head -1")
+    if [[ "$info" == "$SSH_ERR_SENTINEL" ]]; then
+      printf "[UNKNOWN]    session=%s (pane probe failed)\n" "$s"; return
+    fi
     dead=$(awk '{print $1}' <<< "$info"); pid=$(awk '{print $2}' <<< "$info")
 
     if [[ "$dead" == "1" ]]; then any_dead="$s"; continue; fi
 
-    local n
-    n=$(remote_cmd "$host" "pgrep -P $pid 2>/dev/null | wc -l | tr -d ' '" 2>/dev/null || echo "0")
+    local n_out
+    n_out=$(remote_cmd "$host" "pgrep -P $pid 2>/dev/null | wc -l | tr -d ' '")
+    if [[ "$n_out" == "$SSH_ERR_SENTINEL" ]]; then
+      printf "[UNKNOWN]    session=%s (pgrep probe failed)\n" "$s"; return
+    fi
+    local n="${n_out:-0}"
     if [[ "${n:-0}" -gt 0 ]]; then
       printf "[RUNNING]    session=%s\n" "$s"; return
     else
@@ -84,7 +102,10 @@ check_slot() {
 list_sessions() {
   local host="$1" tmux_cmd="$2"
   local sessions
-  sessions=$(remote_cmd "$host" "$tmux_cmd list-sessions 2>/dev/null" || true)
+  sessions=$(remote_cmd "$host" "$tmux_cmd list-sessions 2>/dev/null")
+  if [[ "$sessions" == "$SSH_ERR_SENTINEL" ]]; then
+    echo "  (ssh probe failed — host unreachable)"; return
+  fi
   if [[ -z "$sessions" ]]; then echo "  (no tmux sessions)"; return; fi
 
   local sf_sessions other
@@ -95,15 +116,19 @@ list_sessions() {
     echo "  [SF training]"
     while IFS= read -r line; do
       local s="${line%%:*}"
-      local info dead pid n state
+      local info dead pid n_out n state
       info=$(remote_cmd "$host" \
-        "$tmux_cmd list-panes -t '$s' -F '#{pane_dead} #{pane_pid}' 2>/dev/null | head -1" \
-        2>/dev/null || echo "1 0")
-      dead=$(awk '{print $1}' <<< "$info"); pid=$(awk '{print $2}' <<< "$info")
-      if [[ "$dead" == "1" ]]; then state="DEAD"
+        "$tmux_cmd list-panes -t '$s' -F '#{pane_dead} #{pane_pid}' 2>/dev/null | head -1")
+      if [[ "$info" == "$SSH_ERR_SENTINEL" ]]; then state="UNKNOWN"
       else
-        n=$(remote_cmd "$host" "pgrep -P $pid 2>/dev/null | wc -l | tr -d ' '" 2>/dev/null || echo "0")
-        [[ "${n:-0}" -gt 0 ]] && state="RUNNING" || state="DONE"
+        dead=$(awk '{print $1}' <<< "$info"); pid=$(awk '{print $2}' <<< "$info")
+        if [[ "$dead" == "1" ]]; then state="DEAD"
+        else
+          n_out=$(remote_cmd "$host" "pgrep -P $pid 2>/dev/null | wc -l | tr -d ' '")
+          if [[ "$n_out" == "$SSH_ERR_SENTINEL" ]]; then state="UNKNOWN"
+          else n="${n_out:-0}"; [[ "${n:-0}" -gt 0 ]] && state="RUNNING" || state="DONE"
+          fi
+        fi
       fi
       printf "    [%-7s] %s\n" "$state" "$line"
     done <<< "$sf_sessions"

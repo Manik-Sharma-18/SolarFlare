@@ -41,6 +41,10 @@ def build_forecaster(model_cfg: Dict[str, Any], t_out: int) -> nn.Module:
             residual=model_cfg.get("residual", False),
             norm_type=model_cfg.get("norm_type", "batch"),
             enable_classifier_head=model_cfg.get("enable_classifier_head", False),
+            kernel_dilations=model_cfg.get("kernel_dilations"),
+            recurrent_init=model_cfg.get("recurrent_init", "default"),
+            depthwise_separable=model_cfg.get("depthwise_separable", False),
+            ss_per_step=model_cfg.get("ss_per_step", False),
         )
 
     if kind == "solar_flux":

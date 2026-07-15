@@ -47,3 +47,10 @@ S15_simple_convlstm_dual_classifier_dominant: 1500
 
 # Fallback when config not in table.
 default: 4000
+
+# S47 — pooled 4x, window 48, t_in 25, batch 6, hidden 256 k5, AMP.
+# Scaled from S46 measured peak 4.2 GB (win 64 t14 b6): 0.56x spatial × 2.1x T.
+S47_pool4_tin25: 5000
+
+# S52 — tiny model, t_out 16 (4x decoder rollout vs S50/S51), pool4 win48.
+S52_longroll_tout16: 4000

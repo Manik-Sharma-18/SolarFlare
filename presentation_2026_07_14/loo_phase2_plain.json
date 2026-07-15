@@ -1,0 +1,32 @@
+{
+  "mode": "leave-one-out",
+  "lossmode": "plain",
+  "dfloor": 0.2,
+  "hgamma": 1.0,
+  "holdout": "harp_11930",
+  "field": "cumsum_total",
+  "excluded": "harp_1149",
+  "tin": 10,
+  "tout": 4,
+  "width": 132,
+  "height": 88,
+  "sigma": 1.5,
+  "epochs": 130,
+  "hidden": 96,
+  "layers": 3,
+  "kernel": 3,
+  "train_windows": 2093,
+  "holdout_windows": 46,
+  "model_mae": 0.01051,
+  "persist_mae": 0.0115,
+  "skill_vs_persist": 0.0864,
+  "per_horizon_skill": [
+    0.0232,
+    0.0809,
+    0.1036,
+    0.0974
+  ],
+  "skill_active": 0.1043,
+  "skill_quiet": 0.0477,
+  "seconds": 34593.2
+}

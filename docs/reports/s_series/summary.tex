@@ -1,26 +1,57 @@
 \section{Cross-arm summary \& next levers}
+\label{sec:summary}
 
 \subsection*{Test-set CSI ranked (fixed test cubes 245, 274, 49)}
-\begin{center}\small
-\begin{tabular}{l r r r l}
+
+Persistence baseline CSI = \textbf{0.0430} (the ``wall to beat''). Column
+\emph{vs.\ pers.} reports $(\text{CLS-CSI} - 0.0430)/0.0430 \times 100\%$
+where the dual head exists, else regression CSI vs.\ persistence.
+\emph{var.\ ratio} is the single-step
+$\overline{|\Delta w_{\text{pred}}|} / \overline{|\Delta w_{\text{gt}}|}$;
+$\approx 1$ healthy, $\to 0$ mode collapse, $\gg 1$ runaway.
+
+\begin{center}\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r r r r l}
 \toprule
-Arm & reg.\ CSI & CLS-CSI & cls HSS & vs.\ pers.\ 0.043 \\
+Arm & reg.\ CSI & CLS-CSI & cls HSS & SSIM & var.\ ratio & vs.\ pers. \\
 \midrule
-\rowcolor{tabhdr}\textbf{S16} (hybrid wMAE + classifier)  & \textbf{0.0255} & \textbf{0.0562} & \textbf{0.0995} & \textcolor{wingreen}{\textbf{+31\% above}} \\
-S15 (\(\alpha{=}0.1\) dual)               & 0.0184 & 0.0445 & 0.0783 & matches \\
-\rowcolor{tabhdr}S13 (dual, \(p{=}100\))   & 0.0090 & 0.0434 & 0.0749 & matches \\
-S11 (regression only, fastTF + ext.\ wt.) & 0.0176 & --- & --- & 41\% of \\
-S6 (extreme weight only)                  & 0.0215 (val) & --- & --- & --- \\
-S3 (full composite)                       & 0.0236 (val) & --- & --- & --- \\
-S9 (BatchNorm)                            & 0.0118 & --- & --- & 27\% of \\
-S7 (signed asinh)                         & 0.0042 & --- & --- & 10\% of \\
-S8 (L1 fixed test)                        & 0.0033 & --- & --- & 8\% of \\
-S10 (fast-TF L1)                          & 0.0027 & --- & --- & 6\% of \\
-S0 (baseline)                             & 0 & --- & --- & 0\% \\
-S14 (focal classifier)                    & 0 reg, \textbf{0 cls} & 0 & 0 & dead arm \\
+\rowcolor{tabhdr}\textbf{S31} (masked loss, bg wt.\ 0.01)
+                                          & 0.0457 & \textbf{0.0582} & \textbf{0.1033} & 0.384 & \textcolor{winred}{5.40} & \textcolor{wingreen}{\textbf{+35.3\%}}~$\dagger$ \\
+S16 (hybrid wMAE + classifier)            & 0.0255 & 0.0562 & 0.0995 & \textbf{0.694} & \textbf{0.36} & \textcolor{wingreen}{+30.7\%} \\
+S20.5 (dilated gates)                     & 0.0225 & 0.0548 & 0.0968 & 0.695 & 0.48 & \textcolor{wingreen}{+27.4\%} \\
+\rowcolor{tabhdr}S30 (density sampler)    & 0.0440 & 0.0545 & 0.0951 & 0.525 & 2.44 & \textcolor{wingreen}{+26.6\%} \\
+S15 ($\alpha{=}0.1$ dual)                 & 0.0184 & 0.0445 & 0.0783 & --- & --- & matches \\
+\rowcolor{tabhdr}S13 (dual, $p{=}100$)    & 0.0090 & 0.0434 & 0.0749 & --- & --- & matches \\
+S30b (sampler + 6 knobs)                  & 0.0364 & 0.0271 & 0.0436 & 0.248 & 1.99 & \textcolor{winred}{$-36.9\%$} \\
+S11 (regr.\ only, fastTF + ext.\ wt.)     & 0.0176 & --- & --- & --- & --- & 41\% of \\
+S6 (extreme weight only)                  & 0.0215\textsubscript{val} & --- & --- & --- & --- & --- \\
+S3 (full composite)                       & 0.0236\textsubscript{val} & --- & --- & --- & --- & --- \\
+S9 (BatchNorm)                            & 0.0118 & --- & --- & --- & --- & 27\% of \\
+S7 (signed asinh)                         & 0.0042 & --- & --- & --- & --- & 10\% of \\
+S8 (L1 fixed test)                        & 0.0033 & --- & --- & --- & --- & 8\% of \\
+S10 (fast-TF L1)                          & 0.0027 & --- & --- & --- & --- & 6\% of \\
+S0 (baseline)                             & 0      & --- & --- & --- & --- & 0\% \\
+S14 (focal classifier)                    & 0 reg, \textbf{0 cls} & 0 & 0 & --- & --- & dead arm \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\noindent$\dagger$\,\textbf{S31 caveat --- single-step illusion.} S31 wins
+single-step CLS-CSI by $+3.6\%$ over S16, but its variance ratio of $5.4$
+(vs.\ S16's $0.36$) means the regression head over-shoots amplitude.
+Under multi-step autoregressive rollout, S31 explodes
+(staircase MAE $\sim 22\times$ S16's; see~\S\ref{sec:structural_arms}).
+\textbf{S16 remains the operationally-best arm} once horizon $>1$.
+S30 is the only other arm whose regression CSI also clears persistence
+($0.044 > 0.043$); its var.\ ratio of $2.44$ is intermediate.
+
+\noindent\textbf{Selection-signal caveat.} S13--S32 were all selected by a
+val split containing \texttt{harp\_17} (1.4\% extreme pixels, GOES = 0),
+which makes val\_loss a poor proxy for test CSI
+(\S\ref{sec:lim_val_cube}). \textbf{S33} (S16 clone with val pinned to
+\{\texttt{harp\_8}, \texttt{harp\_54}\}) is running on 5060ti at the time
+of writing; subsequent arms (S34+) inherit the fixed val.
 
 \subsection*{Mechanism narrative (one sentence per arm cluster)}
 \begin{itemize}[leftmargin=14pt,itemsep=2pt,topsep=2pt]
@@ -63,6 +94,24 @@ If we want to push past S16's +31\%-of-persistence:
       \(\to\)1 during training, addressing both S3 collapse and S11
       explosion identified in the staircase diagnostic (\S\ref{sec:cmp_intflux}).
 \end{enumerate}
+
+\subsection*{Update --- objective reframed to curve fidelity (June 2026)}
+The single-step levers above were largely superseded once the objective was
+restated as autoregressive \emph{curve} prediction (the spatial-mean
+winding-flux trajectory; \S\ref{sec:curve_objective}). Of the curve-family arms
+(S46--S52) only \textbf{spatial pooling} (S47, $+8\%$ single-shot) beat the tiny
+S16 architecture --- capacity, normalisation, low-pass loss, scheduled
+sampling, trajectory loss and longer rollout each added nothing to the curve.
+\textbf{S51} is the best single-shot model overall (CLS-CSI 0.0656, reg 0.0389).
+The decisive result is a \emph{predictability ceiling}
+(\S\ref{sec:ceiling}): a robust 38-window bootstrap on HARP 11930 puts every
+arm's spatial-mean curve correlation at $\approx +0.045$ with a 95\% CI that
+straddles zero --- even the arm (S52) trained directly at the evaluation
+horizon. The ground-truth spatial-mean curve is near-white (autocorrelation
+0.11--0.17), so spatial averaging integrates away the predictable low-$k$
+\emph{spatial} structure. The open frontier is therefore spatial-\emph{pattern}
+fidelity at short horizon, or a more autocorrelated scalar than the spatial
+mean --- not further single-step CSI tuning.
 
 \subsection*{Reproducibility pointers}
 Configs: \texttt{configs/ablations/S\{0..16\}\_*.yaml}.

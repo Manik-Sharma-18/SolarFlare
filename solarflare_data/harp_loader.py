@@ -135,19 +135,35 @@ def _densify_harp_cube(
     `time_range`, `harp_id`, `n_invalid_frames`, `n_clipped_pixels`.
     """
     z = zarr.open(str(zarr_path), mode="r")
-    wind_hwt = np.asarray(z["wind"][:], dtype=np.float32)  # [H, W, T]
     time = np.asarray(z["Time"][:], dtype=np.float64)
     keep_t = time > 0
     n_invalid_frames = int((~keep_t).sum())
-    wind_thw = np.transpose(wind_hwt, (2, 0, 1))[keep_t]  # [T_keep, H, W]
     time_kept = time[keep_t]
+    keep_idx = np.where(keep_t)[0]
+    H, W, _ = z["wind"].shape
+    T_keep = len(keep_idx)
 
-    # Artefact pixel mask: NaN OR |w| > clip → 0
-    bad = ~np.isfinite(wind_thw) | (np.abs(wind_thw) > clip)
-    n_clipped_pixels = int(bad.sum())
-    if n_clipped_pixels:
-        wind_thw = wind_thw.copy()
-        wind_thw[bad] = 0.0
+    # Chunked T-wise read/clean to bound peak memory at ~one chunk's worth
+    # of temporaries. The naive path (`z["wind"][:]` then transpose + bool
+    # masks) allocates 3-4× cube-size temporaries — fatal for the 14 GB
+    # 5060ti host when harp_1028 (≈5.8 GB float32) is processed.
+    CHUNK = 256
+    wind_thw = np.empty((T_keep, H, W), dtype=np.float32)
+    n_clipped_pixels = 0
+    for s in range(0, T_keep, CHUNK):
+        e = min(s + CHUNK, T_keep)
+        idx = keep_idx[s:e]
+        chunk_hwt = np.asarray(z["wind"][:, :, idx], dtype=np.float32)  # (H,W,k)
+        # Transpose into the preallocated output, in place.
+        wind_thw[s:e] = np.transpose(chunk_hwt, (2, 0, 1))
+        del chunk_hwt
+        # In-place clip + NaN→0
+        block = wind_thw[s:e]
+        bad = ~np.isfinite(block) | (np.abs(block) > clip)
+        if bad.any():
+            n_clipped_pixels += int(bad.sum())
+            block[bad] = 0.0
+        del bad
 
     meta = {
         "harp_id": zarr_path.stem,
@@ -181,6 +197,7 @@ def load_harp_zarr_data(
     window_size: Optional[int] = None,
     window_stride: Optional[int] = None,
     test_cubes: Optional[List[str]] = None,
+    val_cubes: Optional[List[str]] = None,
 ) -> Tuple[SolarFluxDataset, SolarFluxDataset, SolarFluxDataset, Dict[str, Any]]:
     """Load `*.zarr` HARP cubes and build train/val/test datasets.
 
@@ -235,6 +252,7 @@ def load_harp_zarr_data(
         "files": [], "shapes": [], "time_ranges": [], "value_stats": [],
         "harp_meta": [],
     }
+    import gc
     for i, zp in enumerate(zarr_dirs):
         cube, meta = _densify_harp_cube(zp, clip=clip)
         if crop_size is not None:
@@ -252,9 +270,17 @@ def load_harp_zarr_data(
             "mean": float(cube.mean()), "std": float(cube.std()),
         })
         file_meta["harp_meta"].append(meta)
-        print(f"  {meta['harp_id']:14s}  T={meta['T_kept']:4d}/{meta['T_raw']:4d}  "
-              f"H×W={cube.shape[1]}×{cube.shape[2]}  "
-              f"n_clipped={meta['n_clipped_pixels']}")
+        h, w = cube.shape[1], cube.shape[2]
+        t_kept = meta["T_kept"]
+        n_clipped = meta["n_clipped_pixels"]
+        harp_id = meta["harp_id"]
+        # Release cube before next iteration — Python's allocator otherwise
+        # retains arenas, so 28 sequential densifications would exceed RAM on
+        # the 5060ti host (14 GB). gc.collect() forces malloc_trim.
+        del cube
+        gc.collect()
+        print(f"  {harp_id:14s}  T={t_kept:4d}/{meta['T_raw']:4d}  "
+              f"H×W={h}×{w}  n_clipped={n_clipped}")
 
     # Whole-file (= cube-level / AR-identity) split — eliminates AR-identity
     # leakage between train/val/test. ``test_cubes`` pins a fixed, informative
@@ -262,7 +288,8 @@ def load_harp_zarr_data(
     # arms instead of split-luck; else fall back to seeded ratio split.
     if test_cubes:
         file_assignments = assign_files_with_fixed_test(
-            [Path(p) for p in cube_paths], test_cubes, split_ratios, seed
+            [Path(p) for p in cube_paths], test_cubes, split_ratios, seed,
+            val_ids=val_cubes,
         )
     else:
         file_assignments = assign_files_to_splits(
@@ -274,7 +301,10 @@ def load_harp_zarr_data(
     norm_params: Optional[Dict[str, float]] = None
     extreme_threshold: Optional[float] = None
     if norm_method in ("zscore_per_cube", "signed_asinh"):
-        softening = (norm_config or {}).get("softening", 1.0e6)
+        nc = norm_config or {}
+        # float() guards PyYAML's exponent quirk: "1.0e3" (no sign) is a str.
+        softening = float(nc.get("softening",
+                                 nc.get("signed_asinh_softening", 1.0e6)))
         per_cube_norm, global_norm = _compute_per_cube_norm(
             cube_paths, file_assignments, method=norm_method,
             softening=softening,
@@ -325,10 +355,11 @@ def load_harp_zarr_data(
 
     datasets_out: Dict[str, SolarFluxDataset] = {}
     split_flare_flags: Dict[str, List[bool]] = {}
+    split_extreme_densities: Dict[str, List[float]] = {}
     for split_name in ("train", "val", "test"):
         aug = augmentation if split_name == "train" else "none"
         if window_size is not None:
-            index, flare_flags = build_spatial_index(
+            index, flare_flags, extreme_densities = build_spatial_index(
                 file_paths=cube_paths,
                 file_assignments=file_assignments,
                 t_in=t_in, t_out=t_out,
@@ -338,15 +369,17 @@ def load_harp_zarr_data(
                 augmentation=aug, split=split_name,
                 extreme_threshold=flare_extreme_threshold,
                 flare_density_threshold=flare_density_threshold,
+                per_cube_norm=per_cube_norm,
             )
         else:
-            index, flare_flags = build_index(
+            index, flare_flags, extreme_densities = build_index(
                 file_paths=cube_paths,
                 file_assignments=file_assignments,
                 t_in=t_in, t_out=t_out, stride=stride,
                 augmentation=aug, split=split_name,
                 extreme_threshold=flare_extreme_threshold,
                 flare_density_threshold=flare_density_threshold,
+                per_cube_norm=per_cube_norm,
             )
         datasets_out[split_name] = SolarFluxDataset(
             file_paths=cube_paths,
@@ -360,6 +393,7 @@ def load_harp_zarr_data(
             is_pseudoscalar=True,  # winding flux is a signed pseudoscalar
         )
         split_flare_flags[split_name] = flare_flags
+        split_extreme_densities[split_name] = extreme_densities
 
     print("\nDataset splits (cube-level / AR-identity assignment):")
     for name in ("train", "val", "test"):
@@ -380,6 +414,7 @@ def load_harp_zarr_data(
         "split_ratios": split_ratios,
         "file_assignments": {k: v for k, v in file_assignments.items()},
         "train_flare_flags": split_flare_flags["train"],
+        "train_extreme_densities": split_extreme_densities["train"],
         "clip": clip,
         "loader": "harp_zarr",
         "window_size": window_size,

@@ -46,7 +46,10 @@ def visualize_predictions(
                     predictions = model(X_in, teacher_forcing_ratio=0.0)
             else:
                 predictions = model(X_in, teacher_forcing_ratio=0.0)
-            
+            if isinstance(predictions, tuple):
+                # Dual-head model returns (pred, ext_logits) — plot pred only.
+                predictions = predictions[0]
+
             # Plot last input frame
             ax = axes[i, 0]
             im = ax.imshow(X_in[0, 0, -1].cpu().numpy(), cmap='RdBu_r', vmin=vmin, vmax=vmax)

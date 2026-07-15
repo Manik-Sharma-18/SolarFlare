@@ -356,21 +356,42 @@ def assign_files_with_fixed_test(
     test_ids: List[str],
     split_ratios: List[float],
     seed: int,
+    val_ids: Optional[List[str]] = None,
 ) -> Dict[str, List[int]]:
     """Deterministic test set: cubes whose stem is in ``test_ids`` → test.
 
-    The remaining cubes are shuffled (seeded) and split into train/val by the
-    train:val ratio carried in ``split_ratios`` ([train, test, val]; the test
-    fraction is ignored since the test set is fixed by id). Used to pin an
-    informative, comparable test set across ablation arms instead of a
-    split-luck single cube — see ``data/_extreme_rate_per_cube.json``.
+    If ``val_ids`` is provided, those cubes are pinned to val (mirror of
+    test_cubes). Otherwise, the remaining cubes are shuffled (seeded) and
+    split into train/val by the train:val ratio carried in ``split_ratios``.
+    Used to pin an informative, comparable val/test set across ablation arms
+    instead of split-luck single cubes — see ``data/_extreme_rate_per_cube.json``.
     """
-    want = set(test_ids)
+    want_test = set(test_ids)
     stems = [p.stem if hasattr(p, "stem") else str(p) for p in file_paths]
-    test_idx = [i for i, s in enumerate(stems) if s in want]
-    missing = want - {stems[i] for i in test_idx}
+    test_idx = [i for i, s in enumerate(stems) if s in want_test]
+    missing = want_test - {stems[i] for i in test_idx}
     if missing:
         raise ValueError(f"test_cubes not found among loaded cubes: {sorted(missing)}")
+
+    if val_ids:
+        want_val = set(val_ids)
+        overlap = want_val & want_test
+        if overlap:
+            raise ValueError(f"val_cubes overlap test_cubes: {sorted(overlap)}")
+        val_idx = [i for i, s in enumerate(stems) if s in want_val]
+        missing_val = want_val - {stems[i] for i in val_idx}
+        if missing_val:
+            raise ValueError(f"val_cubes not found among loaded cubes: {sorted(missing_val)}")
+        used = set(test_idx) | set(val_idx)
+        train_idx = [i for i in range(len(file_paths)) if i not in used]
+        assignments = {"train": train_idx, "val": val_idx, "test": test_idx}
+        logger.info(
+            "Fixed train/val/test split: train=%d, val=%d (ids=%s), test=%d (ids=%s)",
+            len(train_idx), len(val_idx), sorted(want_val),
+            len(test_idx), sorted(want_test),
+        )
+        return assignments
+
     rest = [i for i in range(len(file_paths)) if i not in set(test_idx)]
     rng = stdlib_random.Random(seed)
     rng.shuffle(rest)
@@ -384,7 +405,7 @@ def assign_files_with_fixed_test(
     logger.info(
         "Fixed-test split (seed=%d): train=%d, val=%d, test=%d (ids=%s)",
         seed, len(assignments["train"]), len(assignments["val"]),
-        len(test_idx), sorted(want),
+        len(test_idx), sorted(want_test),
     )
     return assignments
 
@@ -561,9 +582,10 @@ def load_and_prepare_data(
 
     datasets_out = {}
     split_flare_flags = {}
+    split_extreme_densities = {}
     for split_name in ("train", "val", "test"):
         aug = augmentation if split_name == "train" else "none"
-        index, flare_flags = build_index(
+        index, flare_flags, extreme_densities = build_index(
             file_paths=cube_paths,
             file_assignments=file_assignments,
             t_in=t_in,
@@ -586,6 +608,7 @@ def load_and_prepare_data(
         )
         datasets_out[split_name] = ds
         split_flare_flags[split_name] = flare_flags
+        split_extreme_densities[split_name] = extreme_densities
 
     print("\nDataset splits (whole-file assignment):")
     for name in ("train", "val", "test"):
@@ -610,6 +633,7 @@ def load_and_prepare_data(
         'split_ratios': split_ratios,
         'file_assignments': {k: v for k, v in file_assignments.items()},
         'train_flare_flags': split_flare_flags["train"],
+        'train_extreme_densities': split_extreme_densities["train"],
     }
 
     return datasets_out["train"], datasets_out["val"], datasets_out["test"], metadata
@@ -732,9 +756,10 @@ def load_preprocessed_data(
     # Build index and datasets -- no on-the-fly normalization (already done)
     datasets_out = {}
     split_flare_flags = {}
+    split_extreme_densities = {}
     for split_name in ("train", "val", "test"):
         aug = augmentation if split_name == "train" else "none"
-        index, flare_flags = build_index(
+        index, flare_flags, extreme_densities = build_index(
             file_paths=cube_paths,
             file_assignments=file_assignments,
             t_in=t_in,
@@ -757,6 +782,7 @@ def load_preprocessed_data(
         )
         datasets_out[split_name] = ds
         split_flare_flags[split_name] = flare_flags
+        split_extreme_densities[split_name] = extreme_densities
 
     print("\nDataset splits (whole-file assignment):")
     for name in ("train", "val", "test"):
@@ -829,6 +855,31 @@ def _build_sampler_weights(
     return [flare_oversample_weight if flag else 1.0 for flag in flare_flags]
 
 
+def _build_density_sampler_weights(
+    extreme_densities: List[float],
+    density_power: float = 1.0,
+    density_floor: float = 0.0,
+    drop_threshold: float = 0.0,
+) -> List[float]:
+    """Density-proportional sampler weights for :class:`WeightedRandomSampler`.
+
+    Each window's sampling weight is
+        max(density_floor, density)**density_power
+    unless density < drop_threshold, in which case the weight is 0
+    (effectively dropping the window). This focuses gradient updates on
+    windows with non-trivial extreme-pixel content; the audit shows that
+    most windows contain near-zero extreme pixels, so uniform sampling
+    spends most steps on uninformative samples.
+    """
+    out: List[float] = []
+    for d in extreme_densities:
+        if d < drop_threshold:
+            out.append(0.0)
+            continue
+        out.append(max(density_floor, float(d)) ** density_power)
+    return out
+
+
 def create_dataloaders(
     train_dataset: SolarFluxDataset,
     val_dataset: SolarFluxDataset,
@@ -839,6 +890,8 @@ def create_dataloaders(
     seed: int = 42,
     train_flare_flags: Optional[List[bool]] = None,
     flare_oversample_weight: float = 1.0,
+    train_extreme_densities: Optional[List[float]] = None,
+    density_sampler: Optional[Dict[str, float]] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create platform-aware DataLoaders from datasets.
 
@@ -894,11 +947,45 @@ def create_dataloaders(
         if mp_context is not None:
             common_kwargs["multiprocessing_context"] = mp_context
 
-    # Weighted sampler for flare oversampling
+    # Density-proportional sampler takes precedence over flare-flag oversampling.
+    use_density_sampler = (
+        density_sampler is not None
+        and density_sampler.get("enabled", False)
+        and train_extreme_densities is not None
+    )
     use_sampler = (
-        train_flare_flags is not None
+        not use_density_sampler
+        and train_flare_flags is not None
         and flare_oversample_weight > 1.0
     )
+
+    if use_density_sampler:
+        weights = _build_density_sampler_weights(
+            train_extreme_densities,
+            density_power=float(density_sampler.get("density_power", 1.0)),
+            density_floor=float(density_sampler.get("density_floor", 0.0)),
+            drop_threshold=float(density_sampler.get("drop_threshold", 0.0)),
+        )
+        n_nonzero = sum(1 for w in weights if w > 0)
+        logger.info(
+            "Density sampler: %d/%d windows with nonzero weight; "
+            "max density=%.4f, mean=%.4f",
+            n_nonzero, len(weights),
+            max(train_extreme_densities) if train_extreme_densities else 0.0,
+            sum(train_extreme_densities) / max(1, len(train_extreme_densities)),
+        )
+        sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=n_nonzero if n_nonzero > 0 else len(weights),
+            replacement=True,
+            generator=g,
+        )
+        train_loader = DataLoader(
+            train_dataset, shuffle=False, sampler=sampler, **common_kwargs
+        )
+        val_loader = DataLoader(val_dataset, shuffle=False, **common_kwargs)
+        test_loader = DataLoader(test_dataset, shuffle=False, **common_kwargs)
+        return train_loader, val_loader, test_loader
 
     if use_sampler:
         weights = _build_sampler_weights(train_flare_flags, flare_oversample_weight)

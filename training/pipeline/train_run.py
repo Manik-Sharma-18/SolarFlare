@@ -67,33 +67,40 @@ def run_training(config: Dict[str, Any]) -> None:
     if config["output"]["save_visualizations"]:
         plot_training_history(history, str(output_dir / "training_history.png"))
 
-    print("\n" + "=" * 60)
-    print("TESTING")
-    print("=" * 60)
-    best_ckpt = output_dir / "checkpoints" / "best_model.pt"
-    ckpt = load_checkpoint(best_ckpt)
-    # Checkpoints store bare keys; torch.compile wraps the model as
-    # OptimizedModule (keys gain a "_orig_mod." prefix). Load into the
-    # underlying module so reload works whether or not the model is compiled.
-    load_target = getattr(model, "_orig_mod", model)
-    load_target.load_state_dict(ckpt["model_state_dict"])
-    model.to(device)
-
-    output_channels = config["model"].get("output_channels", 1)
-    evaluate_on_test(model, test_loader, config, device, output_dir, output_channels)
-
-    if config["output"]["save_visualizations"]:
+    if len(test_dataset) == 0:
+        # No test cubes (e.g. all data folded into train to maximize the
+        # training set). Skip test eval / viz / uncertainty cleanly.
         print("\n" + "=" * 60)
-        print("VISUALIZING")
+        print("TESTING SKIPPED — empty test set (all cubes in train/val)")
         print("=" * 60)
-        visualize_predictions(
-            model, test_dataset, device,
-            n_samples=3,
-            save_path=str(output_dir / "predictions.png"),
-            use_amp=config["training"]["use_amp"],
-        )
+    else:
+        print("\n" + "=" * 60)
+        print("TESTING")
+        print("=" * 60)
+        best_ckpt = output_dir / "checkpoints" / "best_model.pt"
+        ckpt = load_checkpoint(best_ckpt)
+        # Checkpoints store bare keys; torch.compile wraps the model as
+        # OptimizedModule (keys gain a "_orig_mod." prefix). Load into the
+        # underlying module so reload works whether or not the model is compiled.
+        load_target = getattr(model, "_orig_mod", model)
+        load_target.load_state_dict(ckpt["model_state_dict"])
+        model.to(device)
 
-    run_uncertainty(model, test_dataset, device, config, output_dir, output_channels)
+        output_channels = config["model"].get("output_channels", 1)
+        evaluate_on_test(model, test_loader, config, device, output_dir, output_channels)
+
+        if config["output"]["save_visualizations"]:
+            print("\n" + "=" * 60)
+            print("VISUALIZING")
+            print("=" * 60)
+            visualize_predictions(
+                model, test_dataset, device,
+                n_samples=3,
+                save_path=str(output_dir / "predictions.png"),
+                use_amp=config["training"]["use_amp"],
+            )
+
+        run_uncertainty(model, test_dataset, device, config, output_dir, output_channels)
 
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE")
