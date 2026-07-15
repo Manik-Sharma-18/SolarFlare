@@ -122,3 +122,23 @@ dmypy.json
 
 # Pytest
 .pytest_cache/
+
+# --- Large binary artifacts (guard against accidental `git add -A`) ---
+# LaTeX distribution tarball & any archive
+*.tgz
+*.tar
+*.tar.gz
+*.tar.bz2
+TinyTeX*/
+# Zarr data cubes anywhere (data/ already ignored; this also covers archive/)
+*.zarr/
+archive/noisy_cubes/
+# Vendored third-party code / large external models
+third_party/
+# Runtime / scratch / controller state
+.controller/
+scratchpad/
+.sf_user
+.claude/scheduled_tasks.lock
+# Overleaf export bundle (regenerated on demand)
+thesis_overleaf.zip
